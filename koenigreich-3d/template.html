@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#16243d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Königreich 3D – Aufbau &amp; Verteidigung</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#16243d;
+    font-family:"Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    user-select:none; -webkit-user-select:none; }
+  #game { position:fixed; inset:0; width:100%; height:100%; touch-action:none; display:block; }
+  .panel { background:rgba(14,22,38,.86); backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.12); border-radius:14px; color:#e8eef8;
+    box-shadow:0 4px 18px rgba(0,0,0,.45); }
+  #topbar { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); left:8px;
+    right:calc(8px + 258px); display:flex; gap:6px; align-items:center; padding:7px 10px;
+    overflow-x:auto; scrollbar-width:none; z-index:10; }
+  #topbar::-webkit-scrollbar { display:none; }
+  .res { display:flex; align-items:center; gap:4px; font-size:14px; font-weight:600;
+    white-space:nowrap; padding:2px 7px; border-radius:8px; background:rgba(255,255,255,.07); }
+  .res.warn { color:#ff9d7a; }
+  #rZuf { position:relative; }
+  #rZuf::after { content:''; position:absolute; inset:-12px -8px; }
+  #sysbtns { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); right:8px;
+    display:flex; gap:6px; z-index:11; }
+  .sbtn { position:relative; width:44px; height:44px; border-radius:11px;
+    border:1px solid rgba(255,255,255,.15);
+    background:rgba(14,22,38,.86); backdrop-filter:blur(8px); color:#fff; font-size:18px;
+    display:flex; align-items:center; justify-content:center; flex:none; cursor:pointer;
+    box-shadow:0 4px 18px rgba(0,0,0,.45); }
+  .sbtn:active { background:rgba(255,255,255,.22); }
+  #btnMap.alert::after { content:''; position:absolute; top:5px; right:5px; width:10px;
+    height:10px; border-radius:50%; background:#ff4438;
+    box-shadow:0 0 7px rgba(255,60,50,.95); animation:pulse 1s infinite; }
+  .obox.mapbox { position:relative; max-width:none; width:auto; padding:16px 16px 14px;
+    text-align:center; }
+  #mapCv { display:block; width:min(85vw, 70svh); height:min(85vw, 70svh);
+    image-rendering:pixelated; border-radius:10px; border:1px solid rgba(255,255,255,.25);
+    margin:8px auto 0; cursor:pointer; touch-action:manipulation; }
+  #mapClose { position:absolute; top:10px; right:10px; }
+  .map-hint { margin-top:8px; font-size:12px; color:#9db0cc; max-width:min(85vw, 70svh); }
+  #wavebar { position:fixed; top:calc(env(safe-area-inset-top,0px) + 58px); left:50%;
+    transform:translateX(-50%); padding:5px 14px; font-size:13px; color:#dfe8f5;
+    z-index:9; display:flex; gap:8px; align-items:center; }
+  #wavebar.alert { border-color:#ff5a4e; color:#ffb3a7; animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { box-shadow:0 0 18px rgba(255,70,50,.7); } }
+  #hint { position:fixed; top:calc(env(safe-area-inset-top,0px) + 100px); left:50%;
+    transform:translateX(-50%); max-width:88%; padding:7px 14px; font-size:13px;
+    color:#ffe9b0; z-index:9; text-align:center; transition:opacity .4s; }
+  #btnBuild { position:fixed; z-index:12; width:58px; height:58px; border-radius:50%;
+    right:calc(env(safe-area-inset-right,0px) + 14px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 14px); font-size:25px; }
+  #btnBuild.alert::after { content:''; position:absolute; top:4px; right:4px; width:12px;
+    height:12px; border-radius:50%; background:#ffb428;
+    box-shadow:0 0 8px rgba(255,190,60,.95); animation:pulse 1s infinite; }
+  #bmBack { position:fixed; inset:0; z-index:24; background:rgba(8,13,24,.45); display:none; }
+  #bmSheet { position:fixed; left:0; right:0; bottom:0; z-index:25; height:64svh;
+    border-radius:18px 18px 0 0; display:flex; flex-direction:column;
+    padding:14px 10px calc(env(safe-area-inset-bottom,0px) + 10px);
+    transform:translateY(105%); transition:transform .28s ease; }
+  #bmSheet.open { transform:translateY(0); }
+  #bmSheet::before { content:''; position:absolute; top:6px; left:50%;
+    transform:translateX(-50%); width:44px; height:4px; border-radius:2px;
+    background:rgba(255,255,255,.3); }
+  #bmGrip { display:flex; align-items:center; gap:8px; padding:2px 2px 0;
+    touch-action:none; cursor:grab; }
+  #bmTitle { flex:1; font-size:16px; font-weight:700; padding-left:4px; }
+  #bmTabs { display:flex; gap:6px; margin:8px 2px; }
+  .bmtab { flex:1; min-height:44px; border-radius:11px; border:1px solid rgba(255,255,255,.15);
+    background:rgba(255,255,255,.07); color:#cfdaec; font-size:13px; font-weight:600;
+    cursor:pointer; white-space:nowrap; }
+  .bmtab.sel { background:#3d5a8a; border-color:#8fb4e8; color:#fff; }
+  #bmGrid { flex:1; overflow-y:auto; display:grid; align-content:start; gap:8px;
+    grid-template-columns:repeat(auto-fill, minmax(88px,1fr)); padding:2px; }
+  #bmEmpty { padding:22px 10px; font-size:13.5px; color:#9db0cc; text-align:center; }
+  .bcard { border-radius:12px; border:1px solid rgba(255,255,255,.14);
+    background:rgba(30,44,70,.9); color:#e8eef8; padding:6px 4px 7px; text-align:center;
+    cursor:pointer; }
+  .bcard:active, .bcard.sel { background:#3d5a8a; border-color:#8fb4e8; }
+  .bcard.off { opacity:.45; }
+  .bcard canvas { width:52px; height:44px; display:block; margin:0 auto; }
+  .bcard .bn { font-size:11.5px; font-weight:600; margin-top:2px; }
+  .bcard .bc { font-size:11px; opacity:.85; margin-top:1px; }
+  #placebar { position:fixed; bottom:calc(env(safe-area-inset-bottom,0px) + 84px); left:50%;
+    transform:translateX(-50%); width:max-content; display:none; gap:12px; z-index:11;
+    padding:8px 12px; }
+  #placebar button { font-size:17px; font-weight:700; padding:9px 22px; min-height:44px;
+    border-radius:11px; border:none; cursor:pointer; white-space:nowrap; }
+  #pbOk { background:#3fae5c; color:#fff; }
+  #pbOk:disabled { background:#4a5568; color:#9aa7bb; }
+  #pbNo { background:#b0463c; color:#fff; }
+  #infopanel { position:fixed; bottom:calc(env(safe-area-inset-bottom,0px) + 84px);
+    left:8px; right:8px; z-index:10; display:none; padding:10px 46px 10px 12px; font-size:13px; }
+  #infopanel h3 { font-size:15px; margin-bottom:2px; }
+  #infopanel .row { display:flex; align-items:center; gap:10px; }
+  #infopanel .grow { flex:1; }
+  #infopanel button { border:none; border-radius:9px; padding:11px 15px; min-height:44px;
+    font-size:13px; font-weight:600; cursor:pointer; margin-top:6px; margin-right:6px; }
+  #ipClose { position:absolute; top:2px; right:2px; width:44px; height:44px; margin:0;
+    padding:0; min-height:44px; background:transparent; color:#aebedb; font-size:18px; }
+  .btn-red { background:#b0463c; color:#fff; }
+  .btn-green { background:#3fae5c; color:#fff; }
+  .btn-blue { background:#3d6fb4; color:#fff; }
+  #toasts { position:fixed; top:38%; left:50%; transform:translateX(-50%); z-index:20;
+    display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; }
+  .toast { padding:8px 18px; border-radius:11px; background:rgba(12,20,36,.92); color:#fff;
+    font-size:14px; border:1px solid rgba(255,255,255,.2); animation:tin .3s ease-out;
+    box-shadow:0 4px 16px rgba(0,0,0,.5); text-align:center; max-width:82vw; }
+  @keyframes tin { from { opacity:0; transform:translateY(14px) scale(.92);} }
+  .overlay { position:fixed; inset:0; z-index:30; background:rgba(8,13,24,.82);
+    display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px); }
+  .obox { max-width:420px; width:88%; padding:26px 24px; text-align:center; color:#eef3fb;
+    max-height:92vh; max-height:92svh; overflow-y:auto; }
+  .obox h1 { font-size:30px; letter-spacing:.5px; margin-bottom:4px;
+    background:linear-gradient(180deg,#ffe9a8,#e8a53f); -webkit-background-clip:text;
+    background-clip:text; color:transparent; }
+  .obox h2 { font-size:15px; font-weight:500; color:#aebedb; margin-bottom:14px; }
+  .obox p { font-size:13.5px; line-height:1.55; color:#c6d2e6; margin-bottom:8px; text-align:left; }
+  .obox .big { display:inline-block; margin-top:14px; font-size:18px; font-weight:700;
+    padding:12px 38px; border-radius:13px; border:none; cursor:pointer;
+    background:linear-gradient(180deg,#4cc06a,#2f8f4a); color:#fff;
+    box-shadow:0 4px 14px rgba(40,160,80,.4); }
+  .seal { margin:10px 0 4px; padding:7px 10px; font-size:11.5px; line-height:1.5;
+    text-align:center; color:#9fd8a8; background:rgba(63,174,92,.10);
+    border:1px solid rgba(63,174,92,.35); border-radius:10px; }
+  .chronbox { position:relative; max-width:520px; text-align:left; overflow:hidden;
+    display:flex; flex-direction:column; height:min(88svh, 660px); padding:18px 18px 14px; }
+  .chron-title { font-size:22px !important; text-align:center; }
+  #chronClose { position:absolute; top:10px; right:10px; }
+  #chronList { flex:1; overflow-y:auto; margin-top:6px; min-height:100px; }
+  .chron-entry { display:flex; gap:10px; align-items:flex-start; padding:9px 2px;
+    font-size:13px; color:#dbe5f4; border-bottom:1px solid rgba(255,255,255,.08); }
+  .chron-entry img { width:112px; height:63px; border-radius:8px; flex:none;
+    border:1px solid rgba(255,255,255,.15); object-fit:cover; }
+  .chron-entry .ct { flex:1; line-height:1.4; }
+  .ctime { font-size:11px; color:#8fa3c4; margin-bottom:2px; }
+  .chron-empty { padding:18px 4px; font-size:13px; color:#9db0cc; }
+  .chron-meta { margin-top:8px; padding-top:10px; border-top:1px solid rgba(255,255,255,.12); }
+  .chron-meta button { min-height:44px; padding:10px 14px; border:none; border-radius:10px;
+    background:#3d6fb4; color:#fff; font-size:13px; font-weight:600; cursor:pointer;
+    margin-right:6px; margin-top:4px; }
+  #btnImportGo { background:#3fae5c; }
+  #importTxt { width:100%; margin-top:8px; padding:8px; border-radius:9px; font-size:12px;
+    background:rgba(255,255,255,.08); color:#e8eef8; border:1px solid rgba(255,255,255,.2);
+    resize:vertical; user-select:text; -webkit-user-select:text; }
+  @media (max-width:479px){
+    #topbar { flex-wrap:wrap; overflow-x:hidden; overflow-y:auto; row-gap:4px;
+      max-height:88px; right:calc(8px + 102px); }
+    #sysbtns { display:grid; grid-template-columns:44px 44px; }
+    #rEra span { display:none; }
+    #wavebar { top:calc(env(safe-area-inset-top,0px) + 104px); }
+    #hint { top:calc(env(safe-area-inset-top,0px) + 146px); }
+  }
+  @media (max-width:360px){
+    .res { font-size:12px; padding:2px 5px; }
+    .bmtab { font-size:11.5px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="topbar" class="panel">
+  <div class="res" id="rHolz">🪵 <span>0</span></div>
+  <div class="res" id="rStein">🪨 <span>0</span></div>
+  <div class="res" id="rErz" style="display:none">⛏️ <span>0</span></div>
+  <div class="res" id="rEisen" style="display:none">⚙️ <span>0</span></div>
+  <div class="res" id="rStahl" style="display:none">🔩 <span>0</span></div>
+  <div class="res" id="rOel" style="display:none">🛢️ <span>0</span></div>
+  <div class="res" id="rLithium" style="display:none">🔋 <span>0</span></div>
+  <div class="res" id="rNahrung">🌾 <span>0</span></div>
+  <div class="res" id="rGold">🪙 <span>0</span></div>
+  <div class="res" id="rPop">👥 <span>0/0</span></div>
+  <div class="res" id="rArmee">⚔️ <span>0</span></div>
+  <div class="res" id="rZuf">😊 <span>–</span></div>
+  <div class="res" id="rEra">🏰 <span>–</span></div>
+</div>
+<div id="sysbtns">
+  <button class="sbtn" id="btnMap" title="Karte">🗺️</button>
+  <button class="sbtn" id="btnChron" title="Chronik">📖</button>
+  <button class="sbtn" id="btnSpeed" title="Geschwindigkeit">▶</button>
+  <button class="sbtn" id="btnSound" title="Ton">🔊</button>
+  <button class="sbtn" id="btnMenu" title="Menü">☰</button>
+</div>
+
+<div id="wavebar" class="panel">🛡️ <span id="waveTxt">–</span></div>
+<div id="hint" class="panel"></div>
+
+<div id="placebar" class="panel">
+  <button id="pbOk">✓ Bauen</button>
+  <button id="pbNo">✕</button>
+</div>
+
+<button class="sbtn" id="btnBuild" title="Baumenü">🔨</button>
+<div id="bmBack"></div>
+<div id="bmSheet" class="panel">
+  <div id="bmGrip">
+    <div id="bmTitle">🔨 Baumenü</div>
+    <button class="sbtn" id="bmClose" title="Schließen">✕</button>
+  </div>
+  <div id="bmTabs">
+    <button class="bmtab sel" data-cat="eco">🏠 Wirtschaft</button>
+    <button class="bmtab" data-cat="mil">⚔️ Militär</button>
+    <button class="bmtab" data-cat="infra">🔧 Infrastruktur</button>
+  </div>
+  <div id="bmGrid"></div>
+  <div id="bmEmpty" style="display:none">Noch nichts freigeschaltet — baue dein Rathaus aus.</div>
+</div>
+
+<div id="infopanel" class="panel">
+  <button id="ipClose" title="Schließen">✕</button>
+  <div class="row">
+    <div class="grow">
+      <h3 id="ipName"></h3>
+      <div id="ipDesc" style="opacity:.85"></div>
+      <div id="ipStats" style="margin-top:3px; color:#9fd8a8"></div>
+    </div>
+  </div>
+  <div id="ipBtns"></div>
+</div>
+
+<div id="toasts"></div>
+
+<div class="overlay" id="startOv">
+  <div class="obox panel">
+    <h1>⚔️ Königreich 3D</h1>
+    <h2>Aufbau &amp; Verteidigung</h2>
+    <p>🏰 Errichte aus einem kleinen Rathaus ein blühendes Reich: Sammle <b>Holz, Stein, Nahrung und Gold</b>, baue Häuser und lass deine Bevölkerung wachsen.</p>
+    <p>🗡️ Doch Vorsicht – <b>Räuberbanden</b> greifen dein Dorf in Wellen an! Bilde Soldaten aus und errichte Wachtürme, bevor die erste Welle kommt.</p>
+    <p>👆 Ziehen = Bewegen &nbsp;·&nbsp; Kneifen = Zoom &nbsp;·&nbsp; Zwei Finger drehen = Kamera drehen</p>
+    <div class="seal">✅ Keine Wartezeiten &nbsp;·&nbsp; ✅ Keine Werbung &nbsp;·&nbsp; ✅ Keine Käufe &nbsp;·&nbsp; ✅ Kein Konto — für immer.</div>
+    <button class="big" id="btnStart" disabled>Lädt …</button>
+  </div>
+</div>
+
+<div class="overlay" id="chronOv" style="display:none">
+  <div class="obox panel chronbox">
+    <button class="sbtn" id="chronClose" title="Schließen">✕</button>
+    <h1 class="chron-title">📖 Stadt-Chronik</h1>
+    <div class="seal">✅ Keine Wartezeiten &nbsp;·&nbsp; ✅ Keine Werbung &nbsp;·&nbsp; ✅ Keine Käufe &nbsp;·&nbsp; ✅ Kein Konto — für immer.</div>
+    <div id="chronList"></div>
+    <div class="chron-meta">
+      <button id="btnExport">💾 Spielstand kopieren</button>
+      <button id="btnImport">📥 Spielstand einfügen</button>
+      <div id="importBox" style="display:none">
+        <textarea id="importTxt" rows="3" placeholder="K3D1:… hier einfügen"></textarea>
+        <button id="btnImportGo">Laden</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="mapOv" style="display:none">
+  <div class="obox panel mapbox">
+    <button class="sbtn" id="mapClose" title="Schließen">✕</button>
+    <h1 class="chron-title">🗺️ Inselwelt</h1>
+    <canvas id="mapCv" width="512" height="512"></canvas>
+    <div class="map-hint">Tippen = dorthin springen &nbsp;·&nbsp; 🟡 Rathaus · ⚪ Gebäude · 🟢 Vorposten · 🔴 Ragnar · 🟠 Angreifer</div>
+  </div>
+</div>
+
+<div class="overlay" id="overOv" style="display:none">
+  <div class="obox panel">
+    <h1>💥 Niederlage</h1>
+    <h2 id="overTxt">Dein Rathaus wurde zerstört.</h2>
+    <button class="big" id="btnRestart">Neues Spiel</button>
+  </div>
+</div>
+
+<script>/*__BUNDLE__*/</script>
+</body>
+</html>
