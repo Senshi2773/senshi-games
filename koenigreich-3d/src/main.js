@@ -2292,6 +2292,7 @@ function tryUpgrade(bd){
     const nowEra = eraOf(bd.lvl);
     if (nowEra !== wasEra){
       chronicleAdd('era', '🎇 Neues Zeitalter: '+nowEra.icon+' '+nowEra.name+' (Rathaus Stufe '+bd.lvl+').');
+      if (state.hero && hero) refreshHeroLook(true);   // 25b: Rüstungs-Look folgt der Epoche
       // Kultur wird ab jetzt zum 4. Bedürfnis – einmaliger Hinweis (Etappe 21b)
       if (nowEra.name==='Renaissance' && !state.kulturHint){
         state.kulturHint = 1;
@@ -2497,6 +2498,219 @@ const PM = {
 };
 for (const k in PM) PM[k].userData.shared = true;
 for (const m of SKIN_MATS) m.userData.shared = true;
+
+// ============================== HELD 2.0 (Etappe 25b) ==============================
+// Der Held trägt vier Rüstungs-Looks über die sieben Epochen (nur Optik, kein Save-Feld):
+// 0 Ritterharnisch (Mittelalter/Renaissance), 1 Platten-Gurtzeug (Industrie/Moderne),
+// 2 Leucht-Anzug (Digital/Raumfahrt), 3 heller Tech-Anzug (Zukunft).
+function heroLookTier(){
+  if (!state || !state.buildings) return 0;
+  const l = rathausLvl();
+  return l>=31 ? 3 : l>=21 ? 2 : l>=11 ? 1 : 0;
+}
+// Metallische Rüstungs-Materialien (geteilt; Palette-Muster wie M/PM)
+// Hinweis: metalness niedrig halten – ohne Environment-Map werden Metalle sonst schwarz
+const HP = {
+  chain:  std(0x9aa2ad,{ metalness:0.25, roughness:0.7  }),  // Kettenhemd
+  plate:  std(0xd6dde6,{ metalness:0.35, roughness:0.4  }),  // polierter Harnisch
+  goldM:  std(0xe0b33c,{ metalness:0.4,  roughness:0.35 }),  // Zierränder
+  pantsA: std(0x565c76),                                     // Beinlinge Mittelalter
+  indus:  std(0x87919c,{ metalness:0.3,  roughness:0.5  }),  // Industrie-Platte
+  indusD: std(0x59626e,{ metalness:0.25, roughness:0.6  }),
+  strap:  std(0x6b5138),                                     // Leder-Gurtzeug
+  suit:   std(0x5a6b8c,{ metalness:0.25, roughness:0.45 }),  // glatter Digital-Anzug
+  suitD:  std(0x44506b,{ metalness:0.3,  roughness:0.4  }),
+  futur:  std(0xe8edf4,{ metalness:0.3,  roughness:0.3  }),  // heller Tech-Anzug
+  futurD: std(0xb9c4d4,{ metalness:0.35, roughness:0.35 }),
+  glow:   std(0x49c8ff,{ emissive:0x2f9fe0, emissiveIntensity:2.2 }),
+  glowHi: std(0x8ce4ff,{ emissive:0x55ccff, emissiveIntensity:2.8 }),
+  plume:  std(0xc23a4a),                                     // Federbusch
+};
+for (const k in HP) HP[k].userData.shared = true;
+// Stil je Look: Rumpf/Ärmel, Beine, Platten, dunkler Kontrast, Zierde, Leuchtakzent
+const HERO_LOOKS = [
+  { body:HP.chain,  legs:HP.pantsA,    plate:HP.plate,  dark:HP.goldM,  glow:null },
+  { body:HP.indusD, legs:PM.pantsDark, plate:HP.indus,  dark:HP.strap,  glow:null },
+  { body:HP.suit,   legs:HP.suitD,     plate:HP.suitD,  dark:HP.suitD,  glow:HP.glow },
+  { body:HP.futur,  legs:HP.futurD,    plate:HP.futurD, dark:HP.futurD, glow:HP.glowHi },
+];
+// Geteilte Rüstungs-Geometrien (eine Instanz für alle Neuaufbauten)
+const HGEO = {
+  chest: new THREE.BoxGeometry(0.19,0.22,0.05),                       // Brustplatte
+  ridge: new THREE.BoxGeometry(0.026,0.2,0.026),                      // Mittelgrat (45° gedreht)
+  pld:   new THREE.SphereGeometry(0.06,7,4,0,Math.PI*2,0,Math.PI*0.55), // Schulterschale
+  rim:   new THREE.TorusGeometry(0.052,0.011,5,10),                   // Goldrand der Schulter
+  brace: new THREE.CylinderGeometry(0.04,0.047,0.095,6),              // Armschiene
+  knee:  new THREE.SphereGeometry(0.05,6,4,0,Math.PI*2,0,Math.PI*0.6),// Knieschiene
+  helmB: new THREE.CylinderGeometry(0.117,0.124,0.13,7,1,true,0.7,Math.PI*2-1.4), // Topfhelm, Front offen
+  nasal: new THREE.BoxGeometry(0.024,0.08,0.02),                      // Nasal über dem Visier
+  brim:  new THREE.BoxGeometry(0.16,0.022,0.06),                      // moderner Helmschirm
+  plumeG:new THREE.BoxGeometry(0.034,0.15,0.034),                     // Federbusch
+  dome:  new THREE.SphereGeometry(0.128,7,5,0,Math.PI*2,0,Math.PI*0.55),
+  visor: new THREE.BoxGeometry(0.17,0.055,0.035),                     // Leucht-Visier
+  crest: new THREE.BoxGeometry(0.02,0.09,0.16),                       // Helmfinne (Zukunft)
+  stripe:new THREE.BoxGeometry(0.045,0.19,0.014),                     // Brust-Leuchtstreifen
+  stripeA:new THREE.BoxGeometry(0.016,0.16,0.012),                    // Arm-Leuchtstreifen
+  edge:  new THREE.BoxGeometry(0.1,0.014,0.024),                      // Energie-Schulterkante
+  strapG:new THREE.BoxGeometry(0.2,0.032,0.02),                       // Umhang-Spange (gold)
+};
+for (const k in HGEO) HGEO[k].userData.shared = true;
+// Umhang-Textur (einmalig per Canvas erzeugt): dunkelblauer Stoff, Goldsaum,
+// goldener heraldischer Löwe (rampant) mit Krone – das Wappen des Helden.
+let _capeMat = null;
+function capeMat(){
+  if (_capeMat) return _capeMat;
+  const cv2 = document.createElement('canvas'); cv2.width = 128; cv2.height = 256;
+  const c2 = cv2.getContext('2d');
+  const gr = c2.createLinearGradient(0,0,0,256);
+  gr.addColorStop(0,'#233559'); gr.addColorStop(1,'#131f3a');
+  c2.fillStyle = gr; c2.fillRect(0,0,128,256);
+  c2.fillStyle = 'rgba(255,255,255,0.045)';                 // dezente Falten-Streifen
+  for (let i=0;i<5;i++) c2.fillRect(10+i*26, 0, 7, 256);
+  c2.strokeStyle = '#d9a92f'; c2.lineWidth = 8; c2.strokeRect(4,4,120,248);   // Goldsaum
+  c2.strokeStyle = '#8a6a1a'; c2.lineWidth = 2; c2.strokeRect(10,10,108,236);
+  const G = '#e6b83c';
+  c2.fillStyle = G; c2.strokeStyle = G; c2.lineCap = 'round'; c2.lineJoin = 'round';
+  c2.lineWidth = 21;                                        // Rumpf: Diagonale Hüfte→Schulter
+  c2.beginPath(); c2.moveTo(82,152); c2.lineTo(62,102); c2.stroke();
+  c2.beginPath(); c2.arc(58,86,17,0,7); c2.fill();          // Mähne
+  c2.beginPath(); c2.arc(48,78,10,0,7); c2.fill();          // Kopf
+  c2.beginPath(); c2.moveTo(48,70); c2.lineTo(28,74); c2.lineTo(44,82);   // offenes Maul
+  c2.lineTo(30,90); c2.lineTo(48,92); c2.closePath(); c2.fill();
+  c2.lineWidth = 9;                                         // erhobene Vorderpranken
+  c2.beginPath(); c2.moveTo(60,100); c2.lineTo(30,96); c2.stroke();
+  c2.beginPath(); c2.moveTo(66,114); c2.lineTo(34,116); c2.stroke();
+  c2.beginPath(); c2.arc(27,95,6,0,7); c2.fill();
+  c2.beginPath(); c2.arc(31,117,6,0,7); c2.fill();
+  c2.lineWidth = 10;                                        // Hinterbeine
+  c2.beginPath(); c2.moveTo(80,150); c2.lineTo(64,180); c2.stroke();
+  c2.beginPath(); c2.moveTo(88,152); c2.lineTo(88,184); c2.stroke();
+  c2.beginPath(); c2.arc(60,183,6,0,7); c2.fill();
+  c2.beginPath(); c2.arc(90,187,6,0,7); c2.fill();
+  c2.lineWidth = 5;                                         // Schwanz mit Quaste
+  c2.beginPath(); c2.moveTo(88,146); c2.quadraticCurveTo(112,132,104,106);
+  c2.quadraticCurveTo(100,94,108,88); c2.stroke();
+  c2.beginPath(); c2.arc(109,84,6,0,7); c2.fill();
+  c2.beginPath();                                           // Krone auf dem Kopf
+  c2.moveTo(46,68); c2.lineTo(46,56); c2.lineTo(52,62); c2.lineTo(58,52);
+  c2.lineTo(64,62); c2.lineTo(70,56); c2.lineTo(70,68); c2.closePath(); c2.fill();
+  c2.fillStyle = '#131f3a';                                 // Auge
+  c2.beginPath(); c2.arc(50,76,2.2,0,7); c2.fill();
+  const tex = new THREE.CanvasTexture(cv2);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 2;
+  _capeMat = new THREE.MeshStandardMaterial({ map:tex, side:THREE.DoubleSide,
+    roughness:0.85, metalness:0 });
+  _capeMat.userData.shared = true;
+  return _capeMat;
+}
+// Umhang: leicht um den Rücken gewölbte, segmentierte Fläche (4×6) – die
+// Ausgangslage liegt in userData.base, animHeroCape() wellt sie im Wind.
+function makeHeroCape(){
+  const geo = new THREE.PlaneGeometry(0.34,0.5,4,6);
+  geo.translate(0,-0.25,0);                                 // Aufhängung an der Oberkante
+  const pos = geo.attributes.position;
+  for (let i=0;i<pos.count;i++){
+    const x = pos.getX(i), y = pos.getY(i);
+    pos.setZ(i, -x*x*1.3 + y*0.16);                         // Wölbung + Saum schwingt nach hinten
+  }
+  geo.computeVertexNormals();
+  geo.userData.base = Float32Array.from(pos.array);
+  const m = mesh(geo, capeMat());
+  m.name = 'cape';
+  m.position.set(0, 0.585, -0.115);
+  return m;
+}
+// Wind-Wellen: Sinus über die Ausgangslage, Amplitude wächst zum Saum;
+// beim Laufen (hero.wb) weht der Umhang zusätzlich nach hinten.
+function animHeroCape(t){
+  if (!hero || !hero.mesh) return;
+  const cape = hero.mesh.userData.cape;
+  if (!cape) return;
+  const pos = cape.geometry.attributes.position, base = cape.geometry.userData.base;
+  const wb = hero.wb || 0;
+  for (let i=0;i<pos.count;i++){
+    const bx3 = base[i*3], by3 = base[i*3+1], bz3 = base[i*3+2];
+    const w = -by3/0.5;                                     // 0 Schulter … 1 Saum
+    pos.setZ(i, bz3 - (Math.sin(t*2.3 + by3*4.5 + bx3*2.5)*0.5+0.5)*0.05*w*w - wb*0.16*w);
+    pos.setX(i, bx3 + Math.sin(t*1.7 + by3*3.0)*0.012*w);
+  }
+  pos.needsUpdate = true;
+  cape.geometry.computeVertexNormals();
+}
+// Baut die Epochen-Rüstung auf den Basiskörper (P: body/head/armL/armR/legL/legR).
+// Anker wpn/armor/trk setzt makePerson danach – sie sitzen auf allen vier Looks.
+function buildHeldLook(g, P){
+  const tier = heroLookTier();
+  const L = HERO_LOOKS[tier];
+  g.userData.lookTier = tier;
+  const add = (geo, mat, x, y, z, parent)=>{
+    const m2 = mesh(geo, mat, false, false);
+    m2.position.set(x,y,z); (parent||g).add(m2); return m2;
+  };
+  // Brustplatte mit Mittelgrat (Grat entfällt bei den glatten Anzügen)
+  add(HGEO.chest, L.plate, 0, 0.455, 0.095);
+  if (tier<=1){ const r = add(HGEO.ridge, L.plate, 0, 0.455, 0.108); r.rotation.y = Math.PI/4; }
+  // Schulterplatten mit Rand – applyHeroEquipVisual blendet sie aus, sobald eine
+  // Rüstung mit eigenen Schulterstücken (Tier ≥ 2) angelegt wird.
+  for (const s of [-1,1]){
+    const p = add(HGEO.pld, L.plate, s*0.15, 0.522, 0);
+    p.scale.y = 0.85; p.name = s<0?'pldL':'pldR';
+    if (tier===0){
+      const r = add(HGEO.rim, HP.goldM, s*0.15, 0.532, 0);
+      r.rotation.x = Math.PI/2; r.name = s<0?'rimL':'rimR';
+    } else if (tier===3){
+      const e = add(HGEO.edge, HP.glowHi, s*0.15, 0.565, 0);
+      e.name = s<0?'rimL':'rimR';
+    }
+  }
+  // Arm- und Knieschienen an den Gliedern (schwingen im Gang mit)
+  add(HGEO.brace, L.plate, 0, -0.19, 0, P.armL);
+  add(HGEO.brace, L.plate, 0, -0.19, 0, P.armR);
+  for (const lg of [P.legL, P.legR]){
+    const k = add(HGEO.knee, L.plate, 0, -0.1, 0.014, lg);
+    k.rotation.x = 0.35;
+  }
+  // Umhang mit Löwen-Emblem + goldene Spange (bleibt über alle Epochen)
+  const cape = makeHeroCape(); g.add(cape);
+  g.userData.cape = cape;
+  add(HGEO.strapG, HP.goldM, 0, 0.562, 0.105);
+  // Helm + Epochen-Akzente
+  if (tier===0){                                            // offener Ritterhelm mit Federbusch
+    add(HGEO.helmB, L.plate, 0, 0.645, 0);                  // Front offen → Gesicht sichtbar
+    add(HGEO.dome, L.plate, 0, 0.70, 0);                    // Kalotte oben auf dem Helmring
+    add(HGEO.nasal, L.plate, 0, 0.665, 0.112);
+    const pl = add(HGEO.plumeG, HP.plume, 0, 0.82, -0.02);
+    pl.rotation.x = -0.18; pl.name = 'plume';
+  } else if (tier===1){                                     // moderner Helm + Leder-Gurtzeug
+    add(HGEO.dome, HP.indus, 0, 0.685, 0);                  // sitzt hoch: Gesicht bleibt frei
+    add(HGEO.brim, HP.indusD, 0, 0.705, 0.1);
+    for (const s of [-1,1]){
+      const st = add(HGEO.strapG, HP.strap, 0, 0.46, 0.122);
+      st.rotation.z = s*0.6;
+    }
+  } else {                                                  // Digital/Raumfahrt/Zukunft: Visier-Helm
+    add(HGEO.dome, L.plate, 0, 0.652, 0);
+    add(HGEO.visor, L.glow, 0, 0.652, 0.115);
+    add(HGEO.stripe, L.glow, 0, 0.46, 0.115);               // Brust-Leuchtstreifen
+    add(HGEO.stripeA, L.glow, 0, -0.14, 0.033, P.armL);
+    add(HGEO.stripeA, L.glow, 0, -0.14, 0.033, P.armR);
+    if (tier===3){ const c = add(HGEO.crest, HP.glowHi, 0, 0.77, -0.02); c.rotation.x = -0.1; }
+  }
+}
+// Ego-Hände folgen der Epoche: Handschuh-Material + Leuchtstreifen ab Digital
+function updateEgoHandLook(){
+  const tier = heroLookTier();
+  const glove = [HP.plate, HP.indusD, HP.suitD, HP.futurD][tier];
+  for (const nm of ['handL','handR']){
+    const o = egoHands.getObjectByName(nm);
+    if (o) o.material = glove;
+  }
+  for (const nm of ['glowE_L','glowE_R']){
+    const o = egoHands.getObjectByName(nm);
+    if (o){ o.visible = tier>=2; o.material = tier===3 ? HP.glowHi : HP.glow; }
+  }
+}
 function makePerson(kind, matIdx){
   const g = new THREE.Group();
   g.rotation.order = 'YXZ';              // erst Blickrichtung, dann Vorlehnen beim Laufen
@@ -2504,10 +2718,14 @@ function makePerson(kind, matIdx){
     (kind==='aisoldier' ? PM.aiBody :
     (kind==='laser' ? PM.laserBody :
     (kind==='ritter' ? M.steel :
-    (kind==='held' ? PM.heldBody : (kind==='enemy' ? M.enemyBody : FOLK_MATS[matIdx%FOLK_MATS.length])))));
-  const skin = SKIN_MATS[(Math.random()*SKIN_MATS.length)|0];   // bunt gemischte Hauttöne
+    (kind==='held' ? HERO_LOOKS[heroLookTier()].body :          // 25b: Epochen-Look
+      (kind==='enemy' ? M.enemyBody : FOLK_MATS[matIdx%FOLK_MATS.length])))));
+  // Hauttöne bunt gemischt – nur der Held behält sein festes, markantes Gesicht
+  const skin = kind==='held' ? SKIN_MATS[0] : SKIN_MATS[(Math.random()*SKIN_MATS.length)|0];
   const legMat = kind==='ritter' ? M.steel :
-    (kind==='laser' ? PM.laserDark : (kind==='enemy'||kind==='aisoldier' ? PM.pantsDark : PM.pants));
+    (kind==='laser' ? PM.laserDark :
+    (kind==='held' ? HERO_LOOKS[heroLookTier()].legs :
+      (kind==='enemy'||kind==='aisoldier' ? PM.pantsDark : PM.pants)));
   // Rumpf (konisch, Schultern eingebacken) + Gürtel
   const body = mesh(torsoGeo, bodyMat); body.position.y = 0.38; g.add(body);
   const belt = mesh(beltGeo, kind==='held' ? M.gold : M.timber, false); belt.position.y = 0.27; g.add(belt);
@@ -2559,11 +2777,8 @@ function makePerson(kind, matIdx){
     const boss = mesh(new THREE.CircleGeometry(0.05,8), M.gold, false, false);
     boss.position.set(-0.036,-0.11,0.02); boss.rotation.y = Math.PI/2; armL.add(boss);
   } else if (kind==='held'){
-    // Goldener Umhang (eigene Geometrie, wird mit der Figur disposed)
-    const cape = mesh(new THREE.BoxGeometry(0.27,0.38,0.035), M.gold, false);
-    cape.position.set(0,0.44,-0.135); cape.rotation.x = 0.1; cape.name = 'cape'; g.add(cape);
-    const clasp = mesh(new THREE.SphereGeometry(0.03,6,5), M.gold, false);
-    clasp.position.set(0,0.55,0.11); g.add(clasp);
+    // 25b: Epochen-Rüstung + Umhang mit Löwen-Emblem (buildHeldLook)
+    buildHeldLook(g, { body, head, armL, armR, legL, legR });
     // Ausrüstungs-Anker: 'wpn' (Waffe an armR), 'armor' (Brust/Schultern), 'trk' (Amulett).
     // Inhalt setzt applyHeroEquipVisual() – hier bleiben die Gruppen leer.
     const wpn = new THREE.Group(); wpn.name = 'wpn'; armR.add(wpn);
@@ -3101,6 +3316,29 @@ function spawnHeroUnit(){
   applyHeroEquipVisual();                // Waffe/Rüstung/Amulett ans Modell + an die Ego-Hände
   return hero;
 }
+// 25b: Modell-Neuaufbau, wenn die Epoche einen anderen Rüstungs-Look verlangt.
+// Der Look leitet sich allein aus der Rathausstufe ab (kein Save-Feld) –
+// alle Referenzen (hero.mesh, userData.limbs/cape, Anker) werden sauber erneuert.
+function refreshHeroLook(fx){
+  updateEgoHandLook();
+  if (!hero || !hero.mesh) return false;
+  if (hero.mesh.userData.lookTier === heroLookTier()) return false;
+  const old = hero.mesh;
+  hero.mesh = makePerson('held');
+  hero.mesh.visible = old.visible;
+  hero.mesh.scale.copy(old.scale);
+  hero.mesh.rotation.copy(old.rotation);
+  hero.mesh.position.copy(old.position);
+  fxGroup.remove(old); disposeGroup(old);
+  applyHeroEquipVisual();
+  if (fx && heroAlive()){                // kurzer Glitzer + Hinweis beim Epochenaufstieg
+    const gy = Math.max(hAt(hero.x,hero.y),0);
+    spawnBurst(wx(hero.x), gy+0.8, wz(hero.y), 10, 0x8fe0ff);
+    spawnBurst(wx(hero.x), gy+0.4, wz(hero.y), 8, 0xffd75a);
+    toast('🛡️ Deine Rüstung wurde der neuen Epoche angepasst.', 4200);
+  }
+  return true;
+}
 function recruitHero(){
   if (state.hero){ toast('Du hast bereits einen Helden.'); return false; }
   const hall = state.buildings.find(b=>b.t==='heldenhalle' && !b.ruin);
@@ -3457,8 +3695,15 @@ let egoHandR = null;
 {
   // Hände eng am Bildrand: Portrait-Frustum ist schmal (Aspect < 0,5)
   const handGeo = new THREE.BoxGeometry(0.075,0.075,0.15);
+  // 25b: Leuchtstreifen auf dem Handrücken (sichtbar ab Digital-Epoche)
+  const handGlow = (nm)=>{
+    const s = mesh(new THREE.BoxGeometry(0.05,0.014,0.13), HP.glow, false, false);
+    s.name = nm; s.position.set(0,0.046,-0.025); s.visible = false; return s;
+  };
   const hl = mesh(handGeo, M.skin, false, false);
+  hl.name = 'handL';
   hl.position.set(-0.105,-0.2,-0.42); hl.rotation.set(0.3,0.15,0);
+  hl.add(handGlow('glowE_L'));
   egoHands.add(hl);
   // Rüstungs-Stulpen (Inhalt setzt applyHeroEquipVisual je nach Rüstung)
   const armL = new THREE.Group(); armL.name = 'armE_L';
@@ -3467,7 +3712,9 @@ let egoHandR = null;
   egoHandR = new THREE.Group();
   egoHandR.position.set(0.105,-0.2,-0.42);
   const hr = mesh(handGeo, M.skin, false, false);
+  hr.name = 'handR';
   hr.rotation.set(0.3,-0.15,0);
+  hr.add(handGlow('glowE_R'));
   egoHandR.add(hr);
   const armR = new THREE.Group(); armR.name = 'armE_R';
   armR.rotation.copy(hr.rotation);
@@ -3897,7 +4144,14 @@ function applyHeroEquipVisual(){
     const trk = hero.mesh.getObjectByName('trk');
     clearAnchor(trk);
     if (trk && h.equip.t) trk.add(makeHeroTrinketMesh(h.equip.t));
+    // 25b: eingebaute Schulterplatten weichen Rüstungen mit eigenen Schulterstücken
+    const hidePld = !!(h.equip.a && HERO_ITEMS[h.equip.a] && HERO_ITEMS[h.equip.a].tier>=2);
+    for (const nm of ['pldL','pldR','rimL','rimR']){
+      const o = hero.mesh.getObjectByName(nm);
+      if (o) o.visible = !hidePld;
+    }
   }
+  updateEgoHandLook();                   // 25b: Handschuh-Look folgt der Epoche
   // Ego-Hände: Waffe in der Rechten, Rüstungs-Stulpen an beiden Händen
   const wpnE = egoHands.getObjectByName('wpnE');
   clearAnchor(wpnE);
@@ -8560,6 +8814,7 @@ function loop(now){
     syncDngUnit(hero, t, dt);
     hero.mesh.position.y += DNG_Y;
   }
+  if (heroAlive() && hero.mesh.visible) animHeroCape(t);   // 25b: Umhang weht im Wind
   // Glitzer-Partikel der Schürf-Spots pulsieren
   for (const g of mineGlitter){
     g.spr.material.opacity = 0.45 + 0.4*Math.sin(t*3 + g.ph);
@@ -8702,6 +8957,8 @@ setTimeout(()=>{
       get marktTab(){return marktTab}, set marktTab(v){marktTab=v},
       heroSail(x,y){ return egoSailTo(x,y); }, openSailPick, get sailPick(){return sailPick},
       egoContext, egoTargetWild, applyHeroEquipVisual, heroArmorHp, heroWeaponDmg,
+      // Etappe 25b: Held 2.0 – Epochen-Look
+      refreshHeroLook, heroLookTier, updateEgoHandLook,
       get wildlife(){return wildlife},
       spawnWildlife(art,x,y){ return spawnWild(art,x,y); },
       clearWildlife(){ for (const a of wildlife) removeUnit(a); wildlife = []; },
