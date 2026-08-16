@@ -157,6 +157,9 @@
     pointer-events:none; box-shadow:0 0 4px rgba(0,0,0,.7); }
   #egoExit { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); right:8px;
     z-index:16; display:none; }
+  /* 👁️-Sichtwechsel (Etappe 24e): Third-Person ↔ Ego, neben dem Exit-Knopf */
+  #egoView { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); right:60px;
+    z-index:16; display:none; }
   #egoRes { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); left:8px;
     z-index:15; display:none; padding:7px 11px; font-size:13px; font-weight:600;
     align-items:center; white-space:nowrap; }
@@ -280,6 +283,7 @@
 <!-- Ego-Modus-HUD (Etappe 24a) -->
 <div id="egoCross"></div>
 <button class="sbtn" id="egoExit" title="Zur Stadt">🏙️</button>
+<button class="sbtn" id="egoView" title="Sicht wechseln (Third-Person/Ego)">👁️</button>
 <div id="egoRes" class="panel">🪙 0</div>
 <div id="egoHp" class="panel">❤️<div id="egoHpBar"><div id="egoHpFill"></div></div></div>
 <div id="egoRing"></div>

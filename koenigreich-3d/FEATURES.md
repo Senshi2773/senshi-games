@@ -187,6 +187,45 @@ Stand: 15.08.2026 – vom Spieler gesammelt, Umsetzung erfolgt auf Zuruf.
       (Artifact + PR, gleiche URL), `/neues-gebaeude` (13-Punkte-Checkliste
       für neue Gebäudetypen).
 
+## ⚔️ Etappe 24 (16.08.2026): Das Helden-System (24a–24e)
+
+31. ✅ **Held & Third-Person-/Ego-Steuerung** (24a + 24e).
+    🏛️ Heldenhalle (ab Rathaus 3) rekrutiert den ersten Helden gratis
+    (Generator-Name, Würfel-Button). Held antippen → „Steuern": Third-
+    Person-Folgekamera hinter dem Helden (Standard; im Dungeon enger und
+    mit Wand-Kollision), 👁️-Knopf schaltet in die Ego-Sicht (Minecraft-
+    Hände). Touch: dynamischer Joystick links (Sprint), Blick-Drag rechts,
+    Fadenkreuz mit Kontext-Button und Kegel-Zielhilfe. Die Stadt läuft
+    dabei sichtbar weiter; Angriffs-Banner mit Ein-Tap-Rückkehr. Kein
+    Perma-Tod: Respawn nach 20 s an der Heldenhalle.
+
+32. ✅ **Entwicklung durch Tun + Aktionen** (24b).
+    4 Fertigkeiten (⚔️ Kampf, 🤝 Handel, ⛏️ Schürfen, 🔨 Schmiedekunst)
+    steigen durch die Tätigkeit selbst (Maximum wächst mit der Rathaus-
+    stufe). Goldschürfen an glitzernden Ufer-Kiesbänken (Nuggets/Edel-
+    steine in den Beutel, als Gold ODER Zahlungsmittel an der Schmiede),
+    Crafting Tier 1–4 (Holzknüppel → Energieklinge, Rüstungen, 3 Amulette)
+    mit sichtbarer Ausrüstung am Modell und in den Ego-Händen, Helden-
+    Handel mit Kurs-Boni (harte Anti-Exploit-Klemme), Hafen-Übersetzen,
+    Auto-Modus (verteidigt/patrouilliert/schürft mit 30 % Rate weiter,
+    wenn man lieber baut). Dazu 🦌 Wildtiere: 10 Arten (je Biom eine
+    fliehende und eine wehrhafte), jagdbar mit Beute.
+
+33. ✅ **Dungeons** (24c). 1 Fels-Portal je Insel, Tier nach Biom:
+    Wurzelhöhle → Eisgrotte → Grabkammer → Lavastollen. 3–5 Räume pro
+    Run (seed-variiert), Truhen, Hebel-Rätsel, Boss mit Telegraph-
+    Mechanik (rote Warnkreise, Ausweichen möglich). Boss-Erstkill
+    garantiert Ausrüstung; sofort wiederholbar ohne Cooldown. Tod im
+    Dungeon = Erwachen am Eingang ohne Verlust.
+
+34. ✅ **Quests** (24d). 📜 Anschlagtafel am Rathaus (immer 2 Angebote)
+    und ❗-Bürger als lebendige Questgeber. Typen: Dungeon-Aufträge,
+    Jagd, Eindringlings-Lager vertreiben (eigenes Räuber-Lager nur für
+    den Helden), Lieferung/Sammlung. Straffreies Ablehnen/Aufgeben,
+    Quest-Tracking im Blickfeld, Minimap-Marker, „Dankbare Bürger"-
+    Zufriedenheitsbonus, Chronik-Meilensteine.
+    - Alles Save-v3-kompatibel (Alt-Stände laden unverändert, ohne Held).
+
 ## 🔧 Etappen 13–15 (15.08.2026): Befunde der Agenten-Prüfrunde behoben
 
 21. ✅ **Spiellogik-Fixes** (Etappe 13, Befunde von verifizierer/balance-analyst).

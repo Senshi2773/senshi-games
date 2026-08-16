@@ -2978,6 +2978,11 @@ function updateExpeditions(dt){
 let hero = null;
 let egoMode = false, egoBlend = 0, egoYaw = 0, egoPitch = 0, egoBobT = 0, handSwingT = 0;
 const egoStick = { x:0, y:0 };            // virtueller Joystick (-1..1, y = vorwärts)
+// Third-Person (Etappe 24e): Standard-Sicht beim Steuern; 'ego' nur auf Wunsch (👁️-Knopf)
+const heroView = ()=> (state && state.hero && state.hero.view === 'ego') ? 'ego' : 'tp';
+let tpSnap = true;                        // Kamera beim nächsten Frame hart setzen (Raumwechsel)
+const _tpPos = new THREE.Vector3();       // weich nachgezogene Third-Person-Kameraposition
+let viewFov = 60;                         // weicher FOV-Übergang Ego (70) ↔ Third-Person (60)
 const HERO_A = ['Björn','Erik','Sigrid','Astrid','Leif','Runa','Torben','Freya','Halvar','Ylva','Sten','Ingrid'];
 const HERO_B = ['Eisenfaust','Sturmklinge','Bärenherz','Adlerauge','Nachtwind','Silberhand','Drachenmut','Steinschild','Wolfsblut','Morgenstern'];
 let pendingHeroName = null;
@@ -3047,7 +3052,7 @@ function recruitHero(){
   const c = buildingCenter(hall);
   const l = findLanding(Math.round(c[0]), Math.round(c[1])+2);
   state.hero = { name, x:l[0], y:l[1], hp:100, skills:{k:1,h:1,s:1,c:1}, exp:{k:0,h:0,s:0,c:0},
-    equip:{w:'holzknueppel',a:null,t:null}, bag:[], auto:1, respawn:0 };
+    equip:{w:'holzknueppel',a:null,t:null}, bag:[], auto:1, respawn:0, view:'tp' };
   state.hero.hp = heroMaxHp();
   spawnHeroUnit();
   chronicleAdd('held1', '⚔️ ' + name + ' trat in den Dienst von ' + reichName() + '.');
@@ -3266,7 +3271,10 @@ function updateHeroEgo(dt){
     }
     hero.moving = movedAny;
     if (movedAny){ hero.dir = Math.atan2(vy,vx); egoBobT += dt*(3.2+sp*2.4); }
-  } else hero.moving = false;
+  } else {
+    hero.moving = false;
+    if (heroView() !== 'ego') hero.dir = egoYaw;   // Third-Person: Figur folgt dem Blick
+  }
 }
 function updateHero(dt){
   const h = state.hero;
@@ -3410,7 +3418,7 @@ function setEgoUI(on){
   $('topbar').style.display = on ? 'none' : '';
   ui.wavebar.style.display = on ? 'none' : '';
   if (on) ui.hint.style.display = 'none';
-  for (const id of ['egoExit','egoHp','egoRes','egoAct2']) $(id).style.display = on ? 'flex' : 'none';
+  for (const id of ['egoExit','egoView','egoHp','egoRes','egoAct2']) $(id).style.display = on ? 'flex' : 'none';
   $('egoCross').style.display = on ? 'block' : 'none';
   if (!on)
     for (const id of ['egoAct','egoAct2','egoBanner','egoStick','egoRing']) $(id).style.display = 'none';
@@ -3426,11 +3434,18 @@ function enterEgo(){
   egoStick.x = 0; egoStick.y = 0;
   cancelEraFlight(); cancelPlacing(); hideInfo(); selected = null; hideSelQuads(); closeBuildSheet();
   if (speed > 1){ speed = 1; $('btnSpeed').textContent = '▶'; }   // Simulation fest auf 1×
-  hero.mesh.visible = false;
-  egoHands.visible = true;
+  tpSnap = true;
+  viewFov = heroView()==='ego' ? 70 : 60;
+  applyEgoViewVis();
   setEgoUI(true);
   snd(420,0.08,'sine',0.03);
   return true;
+}
+// Sichtbarkeiten je Sicht: Ego = Hände statt Figur, Third-Person = Figur statt Hände
+function applyEgoViewVis(){
+  const ego = heroView()==='ego';
+  egoHands.visible = egoMode && ego;
+  if (hero && egoMode) hero.mesh.visible = !ego && !(state.hero && state.hero.respawn > 0);
 }
 function exitEgo(){
   if (!egoMode) return false;
@@ -3491,6 +3506,16 @@ function egoPointerUp(e){
   }
 }
 $('egoExit').addEventListener('click', ()=>exitEgo());
+$('egoView').addEventListener('click', ()=>{
+  // 👁️: Third-Person ↔ Ego; Präferenz wandert mit in den Save (state.hero.view)
+  if (!egoMode || !state || !state.hero) return;
+  state.hero.view = heroView()==='ego' ? 'tp' : 'ego';
+  if (state.hero.view === 'tp') _tpPos.copy(camera.position);  // weiches Herausziehen ab Ist-Position
+  tpSnap = false;
+  applyEgoViewVis();
+  snd(500,0.06,'triangle',0.03);
+  save();
+});
 $('egoAct').addEventListener('click', ()=>egoAction());
 $('egoAct2').addEventListener('click', ()=>showBagSheet());
 $('egoBanner').addEventListener('click', ()=>{
@@ -3503,10 +3528,30 @@ $('egoBanner').addEventListener('click', ()=>{
   exitEgo();
   if (best){ cam.tx = wx(best.x); cam.tz = wz(best.y); clampCam(); }
 });
-// --- Kamera: Orbit ↔ Ego mit 0,6-s-Blende, FOV 46→70, Near 0,5→0,08 ---
+// --- Kamera: Orbit ↔ Ego/Third-Person mit 0,6-s-Blende ---
+// Ego: FOV 70 / Near 0,08. Third-Person (Standard): FOV 60 / Near 0,3, Folgekamera
+// schräg hinter dem Helden – Kollision kürzt den Abstand, damit sie NIE in Wänden steckt.
 const _egoCam = new THREE.PerspectiveCamera();
 const _fromPos = new THREE.Vector3(), _fromQ = new THREE.Quaternion();
-function egoView(){
+const _tpDir = new THREE.Vector3();
+// Wunschabstand vom Kopf aus abtasten: Dungeon-Wände (dOcc) bzw. Gebäudekacheln (occ)
+// blocken – dann schrittweise verkürzen (min. 1,2 Welteinheiten)
+function tpCamDist(n, dist0){
+  for (let s = 0.45; s <= dist0; s += 0.25){
+    const gx = hero.x + n.x*s/TL, gy = hero.y + n.z*s/TL;
+    if (dungeon){
+      if (!dWalkable(gx, gy)) return Math.max(1.2, s - 0.35);
+    } else {
+      const cx = Math.round(gx), cy = Math.round(gy);
+      if (inMap(cx,cy)){
+        const o = occ[idx(cx,cy)];
+        if (o > 0 && !state.buildings[o-1].ruin) return Math.max(1.2, s - 0.35);
+      }
+    }
+  }
+  return dist0;
+}
+function egoView(dt){
   if (hero.sail){
     // ⛵ Verfolger-Kamera: hinter dem Boot her, Blick aufs Boot
     const s = hero.sail, bp = s.boat.position;
@@ -3515,19 +3560,35 @@ function egoView(){
     _egoCam.lookAt(bp.x, 0.5, bp.z);
     return;
   }
-  const bob = hero && hero.moving ? Math.sin(egoBobT)*0.02 : 0;   // Kopf-Bobbing ±0,02
-  if (dungeon){                          // Unterwelt: eigenes Raster bei y=−60, ebener Boden
-    const dx2 = dlx(hero.x), dz2 = dlz(hero.y), dy2 = DNG_Y + 0.62 + bob;
-    _egoCam.position.set(dx2, dy2, dz2);
-    const cp2 = Math.cos(egoPitch);
-    _egoCam.lookAt(dx2 + Math.cos(egoYaw)*cp2, dy2 + Math.sin(egoPitch), dz2 + Math.sin(egoYaw)*cp2);
+  const ego = heroView()==='ego';
+  const bob = ego && hero.moving ? Math.sin(egoBobT)*0.02 : 0;    // Kopf-Bobbing nur im Ego
+  // Kopfpunkt (Oberwelt: Terrainhöhe; Unterwelt: ebener Boden bei y=−60)
+  let ax, ay, az;
+  if (dungeon){ ax = dlx(hero.x); ay = DNG_Y + 0.62 + bob; az = dlz(hero.y); }
+  else { ax = wx(hero.x); ay = Math.max(hAt(hero.x,hero.y),0) + 0.62 + bob; az = wz(hero.y); }
+  const cp = Math.cos(egoPitch);
+  const fx = Math.cos(egoYaw)*cp, fy = Math.sin(egoPitch), fz = Math.sin(egoYaw)*cp;
+  if (ego){
+    _egoCam.position.set(ax,ay,az);
+    _egoCam.lookAt(ax+fx, ay+fy, az+fz);
     return;
   }
-  const ex = wx(hero.x), ez = wz(hero.y);
-  const ey = Math.max(hAt(hero.x,hero.y),0) + 0.62 + bob;         // Augenhöhe
-  _egoCam.position.set(ex,ey,ez);
-  const cp = Math.cos(egoPitch);
-  _egoCam.lookAt(ex + Math.cos(egoYaw)*cp, ey + Math.sin(egoPitch), ez + Math.sin(egoYaw)*cp);
+  // Third-Person: Kopf − Blickrichtung·Abstand + Hub (Oberwelt 5/≈2, Dungeon 3,5/≈1,6)
+  const dist0 = dungeon ? 3.5 : 5.0, lift = dungeon ? 0.46 : 0.4;
+  _tpDir.set(-fx, -fy + lift, -fz).normalize();
+  const d = tpCamDist(_tpDir, dist0);
+  let cxw = ax + _tpDir.x*d, cyw = ay + _tpDir.y*d, czw = az + _tpDir.z*d;
+  if (dungeon){
+    cyw = clamp(cyw, DNG_Y + 0.35, DNG_Y + 2.6);                  // unter der Raumdecke bleiben
+  } else {
+    // Terrain-Klemme: Kamera nie unter Bodenhöhe + 0,3 (auch am Wegmittelpunkt prüfen)
+    const gx = hero.x + _tpDir.x*d/TL, gy = hero.y + _tpDir.z*d/TL;
+    cyw = Math.max(cyw, hAt(gx,gy)+0.3, hAt((hero.x+gx)/2,(hero.y+gy)/2)+0.3);
+  }
+  if (tpSnap){ _tpPos.set(cxw,cyw,czw); tpSnap = false; }
+  else _tpPos.lerp(_tpDir.set(cxw,cyw,czw), Math.min(1, (dt||0.016)*8));   // weiches Nachziehen
+  _egoCam.position.copy(_tpPos);
+  _egoCam.lookAt(ax + fx*2, ay + 0.2 + fy*2, az + fz*2);          // Blick folgt Yaw/Pitch
 }
 function updateCamCombined(dt){
   if (!egoMode && egoBlend <= 0){
@@ -3541,12 +3602,14 @@ function updateCamCombined(dt){
   egoBlend = clamp(egoBlend + (egoMode?1:-1)*dt/0.6, 0, 1);
   updateCam();                             // Orbit-Sicht als Blend-Basis
   _fromPos.copy(camera.position); _fromQ.copy(camera.quaternion);
-  if (hero) egoView();
+  if (hero) egoView(dt);
   const s = egoBlend*egoBlend*(3-2*egoBlend);
+  const egoLike = heroView()==='ego' || (hero && hero.sail);      // Boot-Kamera wie bisher
+  viewFov += ((egoLike ? 70 : 60) - viewFov)*Math.min(1, dt*6);
   camera.position.lerpVectors(_fromPos, _egoCam.position, s);
   camera.quaternion.slerpQuaternions(_fromQ, _egoCam.quaternion, s);
-  camera.fov = lerp(46,70,s);
-  camera.near = 0.08;
+  camera.fov = lerp(46, viewFov, s);
+  camera.near = egoLike ? 0.08 : 0.3;
   camera.updateProjectionMatrix();
   // Ego-Hände: dezentes Mitwippen + Schwung-Animation (0,25 s) bei Aktion
   egoHands.position.y = hero && hero.moving ? Math.sin(egoBobT*0.9)*0.012 : 0;
@@ -4909,6 +4972,8 @@ function loadRoom(i, from){
   else if (from==='enter'){ hero.x = 11.5; hero.y = 20.6; egoYaw = -Math.PI/2; }
   else { hero.x = 11.5; hero.y = 21.4; egoYaw = -Math.PI/2; }
   hero.moving = false; egoPitch = 0;
+  hero.dir = egoYaw; hero.vdir = egoYaw;
+  tpSnap = true;                           // Folgekamera hart auf den neuen Raum setzen
 }
 // --- Blende (0,2 s zu Schwarz, 0,2 s auf – rein kosmetisch, blockiert nichts) ---
 function dngFadeFx(){
@@ -4946,7 +5011,9 @@ function enterDungeon(isleIdx){
   const l2 = new THREE.PointLight(DNG_LIGHT_COL[p.tier], 1.4, 9, 1.4);
   dngLights = [l1,l2];
   dngGroup.add(l1); dngGroup.add(l2);
-  scene.fog.near = 2; scene.fog.far = 18;                  // dichter Unterwelt-Fog
+  scene.fog.near = 2; scene.fog.far = 22;                  // dichter Unterwelt-Fog (24e: 18→22 für Third-Person)
+  state.hero.view = 'tp';                                  // Spieler-Wunsch: Dungeon IMMER in Third-Person starten
+  applyEgoViewVis();
   loadRoom(0, 'enter');
   state.hero.x = entry[0]; state.hero.y = entry[1];        // Save zeigt immer den Eingang
   dngFadeFx();
@@ -4967,6 +5034,7 @@ function exitDungeon(){
     hero.moving = false; hero.patrol = null;
     if (state.hero){ state.hero.x = hero.x; state.hero.y = hero.y; }
   }
+  tpSnap = true;                           // Oberwelt: Folgekamera hart an den Eingang
   dngFadeFx();
   return true;
 }
@@ -7976,9 +8044,12 @@ function load(){
     // Held (Etappe 24a/24b): Alt-Saves ohne Feld laden ohne Helden; Start immer im Auto-Modus
     state.hero = d.hero ? Object.assign(
       { name:'Held', x:SX, y:SY, hp:100, skills:{k:1,h:1,s:1,c:1}, exp:{k:0,h:0,s:0,c:0},
-        equip:{w:'holzknueppel',a:null,t:null}, bag:[], auto:1, respawn:0, pfanne:0 }, d.hero) : null;
+        equip:{w:'holzknueppel',a:null,t:null}, bag:[], auto:1, respawn:0, pfanne:0,
+        view:'tp' }, d.hero) : null;
     if (state.hero){
       state.hero.auto = 1;
+      // 24e: Sicht-Präferenz validieren (Alt-Saves ohne Feld → Third-Person)
+      if (state.hero.view !== 'ego') state.hero.view = 'tp';
       // 24a-Saves: fehlende 24b-Felder nachrüsten, Beutel-Stapel validieren
       if (!Array.isArray(state.hero.bag)) state.hero.bag = [];
       state.hero.bag = state.hero.bag.filter(s=>s && BAG_ITEMS[s.t] && s.n > 0);
@@ -8193,11 +8264,15 @@ function loop(now){
   for (const a of wildlife) syncUnit(a, a.moving, t, dt);
   for (const e of campEnemies) syncUnit(e, e.moving, t, dt);
   for (const e of dungeonEnemies) syncDngUnit(e, t, dt);
-  if (heroAlive() && !dungeon){          // im Dungeon ist die Figur unsichtbar (Ego)
+  if (heroAlive() && !dungeon){
     syncUnit(hero, hero.moving, t, dt);
     // Hock-Animation beim Schürfen (im Ego ist die Figur ohnehin unsichtbar)
     const hock = mining ? 0.72 : 1;
     hero.mesh.scale.y += (hock - hero.mesh.scale.y)*Math.min(1, dt*6);
+  } else if (heroAlive() && dungeon){
+    // 24e: Figur läuft in Third-Person durch die Unterwelt mit (fxGroup = Weltkoordinaten)
+    syncDngUnit(hero, t, dt);
+    hero.mesh.position.y += DNG_Y;
   }
   // Glitzer-Partikel der Schürf-Spots pulsieren
   for (const g of mineGlitter){
@@ -8343,6 +8418,34 @@ setTimeout(()=>{
       clearWildlife(){ for (const a of wildlife) removeUnit(a); wildlife = []; },
       wildTick(sec){ updateWildlife(sec||1); }, wildCapOf, WILD_ARTS, killWild,
       get egoHands(){return egoHands},
+      // Etappe 24e: Third-Person-Sicht
+      get heroView(){ return heroView(); },
+      setHeroView(v){
+        if (!state.hero) return false;
+        state.hero.view = v==='ego' ? 'ego' : 'tp';
+        tpSnap = true; applyEgoViewVis();
+        return true;
+      },
+      toggleView(){ $('egoView').click(); return heroView(); },
+      get heroMeshVisible(){ return hero ? hero.mesh.visible : null; },
+      get heroMeshPos(){ return hero ? hero.mesh.position.toArray() : null; },
+      camForward(){ const v = new THREE.Vector3(); camera.getWorldDirection(v); return v.toArray(); },
+      heroHeadPos(){
+        if (!hero) return null;
+        return dungeon ? [dlx(hero.x), DNG_Y+0.62, dlz(hero.y)]
+          : [wx(hero.x), Math.max(hAt(hero.x,hero.y),0)+0.62, wz(hero.y)];
+      },
+      camHeroDist(){
+        if (!hero) return -1;
+        const h = dungeon ? [dlx(hero.x), DNG_Y+0.62, dlz(hero.y)]
+          : [wx(hero.x), Math.max(hAt(hero.x,hero.y),0)+0.62, wz(hero.y)];
+        return Math.hypot(camera.position.x-h[0], camera.position.y-h[1], camera.position.z-h[2]);
+      },
+      camGridPos(){
+        return dungeon ? [camera.position.x/TL+11.5, camera.position.z/TL+11.5]
+          : [camera.position.x/TL+C, camera.position.z/TL+C];
+      },
+      tpSnapNow(){ tpSnap = true; },
       // Etappe 24c: Dungeons
       enterDungeon, exitDungeon,
       get dungeon(){
