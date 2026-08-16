@@ -105,12 +105,16 @@
   .btn-red { background:#b0463c; color:#fff; }
   .btn-green { background:#3fae5c; color:#fff; }
   .btn-blue { background:#3d6fb4; color:#fff; }
-  #toasts { position:fixed; top:38%; left:50%; transform:translateX(-50%); z-index:20;
-    display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; }
-  .toast { padding:8px 18px; border-radius:11px; background:rgba(12,20,36,.92); color:#fff;
-    font-size:14px; border:1px solid rgba(255,255,255,.2); animation:tin .3s ease-out;
-    box-shadow:0 4px 16px rgba(0,0,0,.5); text-align:center; max-width:82vw; }
-  @keyframes tin { from { opacity:0; transform:translateY(14px) scale(.92);} }
+  #toasts { position:fixed; top:calc(env(safe-area-inset-top,0px) + 196px); right:8px;
+    z-index:20; display:flex; flex-direction:column; gap:5px; align-items:flex-end;
+    pointer-events:none; }
+  .toast { padding:6px 11px 0; border-radius:9px; background:rgba(12,20,36,.88); color:#e6edf8;
+    font-size:12px; line-height:1.35; border:1px solid rgba(255,255,255,.16);
+    border-bottom:7px solid transparent; background-clip:border-box;
+    animation:tin .25s ease-out; box-shadow:0 3px 10px rgba(0,0,0,.4); text-align:left;
+    max-width:min(62vw, 300px); overflow:hidden; display:-webkit-box; -webkit-line-clamp:2;
+    -webkit-box-orient:vertical; }
+  @keyframes tin { from { opacity:0; transform:translateX(18px);} }
   .overlay { position:fixed; inset:0; z-index:30; background:rgba(8,13,24,.82);
     display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px); }
   .obox { max-width:420px; width:88%; padding:26px 24px; text-align:center; color:#eef3fb;
@@ -147,6 +151,59 @@
   #importTxt { width:100%; margin-top:8px; padding:8px; border-radius:9px; font-size:12px;
     background:rgba(255,255,255,.08); color:#e8eef8; border:1px solid rgba(255,255,255,.2);
     resize:vertical; user-select:text; -webkit-user-select:text; }
+  /* --- Ego-Modus (Etappe 24a) --- */
+  #egoCross { position:fixed; left:50%; top:50%; width:4px; height:4px; border-radius:50%;
+    background:#fff; transform:translate(-50%,-50%); z-index:15; display:none;
+    pointer-events:none; box-shadow:0 0 4px rgba(0,0,0,.7); }
+  #egoExit { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); right:8px;
+    z-index:16; display:none; }
+  /* 👁️-Sichtwechsel (Etappe 24e): Third-Person ↔ Ego, neben dem Exit-Knopf */
+  #egoView { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); right:60px;
+    z-index:16; display:none; }
+  #egoRes { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); left:8px;
+    z-index:15; display:none; padding:7px 11px; font-size:13px; font-weight:600;
+    align-items:center; white-space:nowrap; }
+  #egoHp { position:fixed; bottom:calc(env(safe-area-inset-bottom,0px) + 14px); left:50%;
+    transform:translateX(-50%); width:200px; display:none; align-items:center; gap:7px;
+    z-index:15; padding:6px 11px; font-size:14px; }
+  #egoHpBar { flex:1; height:12px; border-radius:6px; background:rgba(255,255,255,.18);
+    overflow:hidden; }
+  #egoHpFill { height:100%; width:100%; background:#e0524a; border-radius:6px;
+    transition:width .2s linear; }
+  #egoAct { position:fixed; right:calc(env(safe-area-inset-right,0px) + 16px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 96px); width:64px; height:64px;
+    border-radius:50%; font-size:27px; display:none; z-index:16; }
+  #egoRing { position:fixed; right:calc(env(safe-area-inset-right,0px) + 11px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 91px); width:74px; height:74px;
+    border-radius:50%; z-index:15; display:none; pointer-events:none;
+    -webkit-mask:radial-gradient(circle, transparent 32px, #000 33px);
+    mask:radial-gradient(circle, transparent 32px, #000 33px); }
+  #egoAct2 { position:fixed; right:calc(env(safe-area-inset-right,0px) + 20px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 172px); width:56px; height:56px;
+    border-radius:50%; font-size:23px; display:none; z-index:16; }
+  #egoStick { position:fixed; width:96px; height:96px; border-radius:50%; z-index:16;
+    border:2px solid rgba(255,255,255,.45); background:rgba(255,255,255,.08);
+    display:none; pointer-events:none; transform:translate(-50%,-50%); }
+  #egoKnob { position:absolute; left:50%; top:50%; width:48px; height:48px;
+    border-radius:50%; background:rgba(255,255,255,.5);
+    transform:translate(-50%,-50%); }
+  #egoBanner { position:fixed; top:calc(env(safe-area-inset-top,0px) + 60px); left:50%;
+    transform:translateX(-50%); z-index:17; display:none; padding:9px 16px;
+    background:rgba(165,42,32,.93); border:1px solid #ff7a6a; border-radius:11px;
+    color:#fff; font-size:13.5px; font-weight:700; white-space:nowrap;
+    animation:pulse 1s infinite; cursor:pointer; }
+  /* Dungeon-Blende (Etappe 24c): 0,2 s zu Schwarz + 0,2 s auf = 0,4-s-Fade */
+  #dngFade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none;
+    transition:opacity .2s linear; z-index:40; }
+  /* Quest-Tracking (Etappe 24d): Zeile unterm Ego-HP-Balken bzw. klein am Kartenrand */
+  #questTrack { position:fixed; left:50%; transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 58px); z-index:15; display:none;
+    padding:6px 12px; font-size:12.5px; font-weight:600; color:#ffe9b0;
+    white-space:nowrap; cursor:pointer; }
+  #questTrack.orbit { left:auto; right:8px; transform:none; bottom:auto;
+    top:calc(env(safe-area-inset-top,0px) + 152px); font-size:11.5px;
+    max-width:56vw; overflow:hidden; text-overflow:ellipsis; }
+  .res.happy { color:#7fe09a; }
   @media (max-width:479px){
     #topbar { flex-wrap:wrap; overflow-x:hidden; overflow-y:auto; row-gap:4px;
       max-height:88px; right:calc(8px + 102px); }
@@ -223,6 +280,20 @@
   <div id="ipBtns"></div>
 </div>
 
+<!-- Ego-Modus-HUD (Etappe 24a) -->
+<div id="egoCross"></div>
+<button class="sbtn" id="egoExit" title="Zur Stadt">🏙️</button>
+<button class="sbtn" id="egoView" title="Sicht wechseln (Third-Person/Ego)">👁️</button>
+<div id="egoRes" class="panel">🪙 0</div>
+<div id="egoHp" class="panel">❤️<div id="egoHpBar"><div id="egoHpFill"></div></div></div>
+<div id="egoRing"></div>
+<button class="sbtn" id="egoAct" title="Aktion">⚔️</button>
+<button class="sbtn" id="egoAct2" title="Beutel">🎒</button>
+<div id="egoStick"><div id="egoKnob"></div></div>
+<div id="egoBanner">⚠️ Angreifer! 🏙️ Zur Stadt</div>
+<div id="questTrack" class="panel"></div>
+<div id="dngFade"></div>
+
 <div id="toasts"></div>
 
 <div class="overlay" id="startOv">
@@ -259,7 +330,7 @@
     <button class="sbtn" id="mapClose" title="Schließen">✕</button>
     <h1 class="chron-title">🗺️ Inselwelt</h1>
     <canvas id="mapCv" width="512" height="512"></canvas>
-    <div class="map-hint">Tippen = dorthin springen &nbsp;·&nbsp; 🟡 Rathaus · ⚪ Gebäude · 🟢 Vorposten · 🔴 Ragnar · 🟠 Angreifer</div>
+    <div class="map-hint" id="mapHint">Tippen = dorthin springen &nbsp;·&nbsp; 🟡 Rathaus · ⚪ Gebäude · 🟢 Vorposten · 🔴 Ragnar · 🟠 Angreifer · ✨ Schürf-Spot</div>
   </div>
 </div>
 
