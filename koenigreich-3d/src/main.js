@@ -275,6 +275,8 @@ function buyRate(bd,k){
 // --- Bedürfnisse: Nahrung, Sicherheit, Wohnraum (+ Kultur ab Renaissance) → Zufriedenheit ---
 function satisfaction(){
   const cap = popCap();
+  // „Dankbare Bürger“ (24d): +5 pp solange der Timer läuft, Ergebnis bleibt bei 1,0 geklemmt
+  const grat = (state.quests && state.quests.gratitude > 0) ? 0.05 : 0;
   const food = clamp(state.res.nahrung / (state.pop*2+8), 0, 1);
   const towers = state.buildings.reduce((n,b)=>n+(b.t==='turm'?1:0), 0);
   // Luftpatrouille: jedes intakte Flugfeld zählt wie 3 Wachtürme
@@ -287,10 +289,10 @@ function satisfaction(){
   // Sockel 0,3 („Feste auf dem Marktplatz“) verhindert den Deadlock ohne Kultur-Gebäude
   if (rathausLvl() >= 6){
     const kultur = clamp(0.3 + kulturPoints()/Math.max(1, state.pop), 0, 1);
-    const total = clamp(food*0.40 + safety*0.25 + housing*0.20 + kultur*0.15, 0, 1);
+    const total = clamp(food*0.40 + safety*0.25 + housing*0.20 + kultur*0.15 + grat, 0, 1);
     return { food, safety, housing, kultur, total };
   }
-  const total = clamp(food*0.45 + safety*0.3 + housing*0.25, 0, 1);
+  const total = clamp(food*0.45 + safety*0.3 + housing*0.25 + grat, 0, 1);
   return { food, safety, housing, total };
 }
 
@@ -302,6 +304,7 @@ function newState(seed){
     waveActive:false, soldiersOwned:0, popTick:0, muted:false, doctrine:null, ai:null,
     planets:[], chronicle:[], research:{}, researchJob:null,
     dungeons:{ cleared:{} },
+    quests:{ offers:[], active:[], done:0, seedCtr:0, gratitude:0, camp:null },
     seenUnlocks: BUILDABLE.filter(t=>!BT[t].req || BT[t].req<=1) };
 }
 
@@ -744,6 +747,16 @@ function makeBuilding(t){
     const flag = mesh(new THREE.PlaneGeometry(0.62,0.34), std(0xd8b02f,{side:THREE.DoubleSide}));
     flag.position.set(0.33,4.95,0); flag.name = 'flag';
     g.add(flag);
+    // 📜 Anschlagtafel (24d): Brett mit 2 Zetteln an 2 Pfosten neben dem Eingang
+    const tafel = new THREE.Group(); tafel.name = 'tafel';
+    tafel.add(bx(0.06,0.8,0.06, M.woodDark, -0.38,0.15,0));
+    tafel.add(bx(0.06,0.8,0.06, M.woodDark, 0.38,0.15,0));
+    tafel.add(bx(0.9,0.52,0.05, M.wood, 0,0.42,0));
+    tafel.add(bx(0.24,0.32,0.02, M.plaster, -0.19,0.44,0.035));
+    tafel.add(bx(0.24,0.28,0.02, M.plaster, 0.2,0.4,0.035));
+    tafel.position.set(1.92,-0.18,-0.95); tafel.rotation.y = Math.PI/2;
+    tafel.traverse(o=>{ if (o.isMesh) o.castShadow = false; });
+    g.add(tafel);
   }
   else if (t==='holzfaeller'){
     g.add(bx(1.6,0.2,1.6, M.stoneDark, 0,-0.45,0));
@@ -2596,7 +2609,14 @@ function updateFolk(dt){
       mi:Math.floor(Math.random()*5), dir:Math.random()*6, moving:false,
       mesh: makePerson('folk', Math.floor(Math.random()*5)) });
   }
-  while (folk.length > want) removeUnit(folk.pop());
+  while (folk.length > want){
+    // Questgeber (Pin-Flag, 24d) überleben den Abbau – sonst despawnt der ❗-Bürger
+    let i = folk.length-1;
+    while (i >= 0 && folk[i].pin) i--;
+    if (i < 0) break;
+    removeUnit(folk[i]);
+    folk.splice(i,1);
+  }
   for (const f of folk){
     if (f.wait > 0){ f.wait -= dt; f.moving = false; continue; }
     f.moving = true;
@@ -3323,6 +3343,7 @@ function egoTargetEnemy(){
   }
   for (const e of enemies) if (!e.sail) scan(e);
   for (const g of aiGuards) scan(g);
+  for (const e of campEnemies) scan(e);  // Quest-Lager (24d): nur der Held kämpft mit ihnen
   return best;
 }
 // Nahkampfschlag (Ego): Gegner haben Vorrang, danach Wildtiere im Kegel
@@ -3338,6 +3359,7 @@ function heroAttack(){
   t2.hp -= heroDmg();
   if (wild){
     wild.aggro = true;                     // Wehr-Arten schlagen zurück, Flucht-Arten fliehen ohnehin
+    wild.heroHit = 1;                      // 24d: nur manuelle Helden-Kills zählen für Jagd-Quests
   } else if (t2.dng){
     t2.aggro = true;                       // Dungeon: EXP/Beute vergibt killDungeonEnemy
   } else {
@@ -3556,6 +3578,14 @@ function showHeroInfo(){
   sb.className = 'btn-green'; sb.textContent = '🎮 Steuern (Ego-Modus)';
   sb.addEventListener('click', ()=>{ hideInfo(); selected = null; hideSelQuads(); enterEgo(); });
   btns.appendChild(sb);
+  if (questsUnlocked()){
+    ensureOffers();
+    const qb = document.createElement('button');
+    qb.className = 'btn-blue';
+    qb.textContent = '📜 Aufträge (' + state.quests.offers.length + ')';
+    qb.addEventListener('click', ()=>openQuestSheet());
+    btns.appendChild(qb);
+  }
   const hb = document.createElement('button');
   hb.className = 'btn-blue'; hb.textContent = '🏛️ Zur Heldenhalle';
   hb.addEventListener('click', ()=>{
@@ -3927,6 +3957,7 @@ function openHeroTrade(bd){
       const v = Math.round(50*heroSellRate(bd,k));
       state.res[k] -= 50; state.res.gold += v;
       giveHeroExp('h', v/25);
+      questNotify('umsatz', v);          // 24d: Handels-Umsatz-Quest zählt nur Helden-Handel
       snd(600,0.08,'triangle',0.04); openHeroTrade(bd); save();
     });
     const bb = document.createElement('button');
@@ -3938,6 +3969,7 @@ function openHeroTrade(bd){
       if (state.res.gold < cost){ toast('Nicht genug Gold zum Einkaufen.'); return; }
       state.res.gold -= cost; state.res[k] += 50;
       giveHeroExp('h', cost/25);
+      questNotify('umsatz', cost);
       snd(700,0.08,'triangle',0.04); openHeroTrade(bd); save();
     });
     wrap.appendChild(s); wrap.appendChild(bb);
@@ -4088,6 +4120,7 @@ function mineRound(spot, auto){
   const t2 = gem ? 'gem' : (wueste ? 'wnugget' : 'nugget');
   if (!bagAdd(t2, 1)) return false;
   giveHeroExp('s', auto ? 2.5 : 5);      // Nugget = 5 EXP, Auto 50 %
+  if (!auto) questNotify('mine', 1);     // 24d: nur frisch (manuell) Geschürftes zählt
   spawnBurst(wx(spot.x), Math.max(hAt(spot.x,spot.y),0)+0.4, wz(spot.y), 4, gem ? 0x9fd4ff : 0xffd736);
   snd(gem ? 880 : 640, 0.07, 'triangle', 0.03);
   spot.left--;
@@ -4178,6 +4211,13 @@ function egoContext(){
   if (e) return { act:'attack', icon:'⚔️', target:e };
   const dp = egoPortalTarget();
   if (dp) return { act:'dungeon', icon:'🕳️', target:dp };
+  // 24d: 📜 Tafel/❗ Bürger zwischen Dungeon und Markt/Schmiede/Spot
+  const cz = egoTargetCitizen();
+  if (cz) return { act:'citizen', icon:'💬', target:cz };
+  if (questsUnlocked()){
+    const th = nearestInteractBuilding(['rathaus']);
+    if (th) return { act:'tafel', icon:'📜', target:th };
+  }
   const w = egoTargetWild();
   if (w) return { act:'hunt', icon:'⚔️', target:w };
   if (state.hero.pfanne){
@@ -4212,6 +4252,8 @@ function egoAction(){
   if (c.act==='smith'){ openCraftSheet(c.target); return true; }
   if (c.act==='trade'){ openHeroTrade(c.target); return true; }
   if (c.act==='sail'){ openSailPick(); return true; }
+  if (c.act==='citizen'){ openCitizenDialog(c.target); return true; }
+  if (c.act==='tafel'){ openQuestSheet(); return true; }
   return false;
 }
 
@@ -4392,6 +4434,7 @@ function killWild(a){
   removeUnit(a);
   const i = wildlife.indexOf(a);
   if (i >= 0) wildlife.splice(i,1);
+  if (a.heroHit) questNotify('jagd', a);   // 24d: Jagd-Quest-Fortschritt (nur Helden-Kills)
 }
 function updateWildlife(dt){
   // Spawner: alle 45 s je Insel höchstens 1 Tier bis zum Cap (global 28)
@@ -4405,7 +4448,10 @@ function updateWildlife(dt){
       if (!t2) continue;
       const bio = ISLES[p].biome||'wiese';
       const arts = Object.keys(WILD_ARTS).filter(k=>WILD_ARTS[k].biome===bio);
-      if (arts.length) spawnWild(arts[(Math.random()*arts.length)|0], t2[0], t2[1]);
+      // Jagd-Quest-Fallback (24d): geforderte Art bevorzugen, bis die Quest erfüllbar ist
+      const pref = questPreferredArt(p);
+      if (pref && arts.includes(pref)) spawnWild(pref, t2[0], t2[1]);
+      else if (arts.length) spawnWild(arts[(Math.random()*arts.length)|0], t2[0], t2[1]);
     }
   }
   // Verhaltens-Schritt deckeln: große dt-Sprünge (Vorspulen/Ruckler) dürfen Tiere
@@ -5030,6 +5076,7 @@ function killDungeonEnemy(e){
         DNG_BOSS[tier].name+' fiel vor '+state.hero.name+'.');
     } else if (Math.random() < 0.30) grantEquipDrop(tier);
     state.dungeons.cleared[isle] = ctr + 1;
+    questNotify('dungeon', isle);                          // 24d: Boss-Kill NACH Annahme erfüllt
     delete dungeonRuns[isle];                              // nächster Run: neue Raumfolge
     for (const r of dungeon.run.rooms) r.cleared = true;   // Rest des Besuchs bleibt friedlich
     toast('🏆 '+DNG_BOSS[tier].name+' besiegt! Der Rückweg zum Portal ist frei.', 5200);
@@ -5151,6 +5198,785 @@ function egoPortalTarget(){
     bd2 = d; best = p;
   }
   return best;
+}
+
+// ============================== QUESTS (Etappe 24d, Anhang 12) ==============================
+// Zwei Questgeber (📜 Anschlagtafel am Rathaus, ❗-Bürger), ein Log: 1 verfolgte + 2 wartende
+// Quests. Angebote sind seed-deterministisch (Kartenseed ⊕ seedCtr) und werden MITgespeichert.
+// Der Auto-Held macht keine Quests; alle Fortschritts-Hooks sind manuelle Ego-Pfade.
+const questsUnlocked = ()=> !!(state && state.hero &&
+  state.buildings.some(b=>b.t==='heldenhalle'));
+function tafelOk(){
+  const r = state.buildings.find(b=>b.t==='rathaus');
+  return !!(r && !r.ruin);               // Rathaus-Ruine sperrt die Tafel bis zur Reparatur
+}
+function questRng(){
+  state.quests.seedCtr++;
+  return mulberry32((state.seed ^ Math.imul(state.quests.seedCtr, 0x9e3779b9))|0);
+}
+// Erreichbare Inseln = Ursprungs-Inseln mit eigenen Gebäuden (Heimat immer dabei)
+function questIsles(){
+  const set = new Set([isleParent[playerIsle()]||0]);
+  for (const bd of state.buildings){
+    if (bd.ruin) continue;
+    const c = buildingCenter(bd);
+    set.add(isleParent[isleOf(Math.round(c[0]), Math.round(c[1]))]||0);
+  }
+  return [...set];
+}
+function questDropTier(){
+  const R = rathausLvl();
+  return R>=21 ? 4 : (R>=11 ? 3 : (R>=6 ? 2 : 1));
+}
+function packMat(R){ return R>=21 ? {stahl:10,lithium:2} : (R>=11 ? {stahl:6} : {eisen:10}); }
+function bestMarket(){
+  let best = null, l = 0;
+  for (const bd of state.buildings)
+    if (bd.t==='markt' && !bd.ruin && lvlOf(bd) > l){ l = lvlOf(bd); best = bd; }
+  return best;
+}
+// Auszahlungs-Klemme Lieferung: min(1,6·Verkaufswert, 0,95·Einkaufspreis) – zur MARKTLAGE
+// bei Abgabe, mit allen Helden-Boni. So ist „am Markt kaufen und abliefern“ immer ein Verlust.
+function lieferPayout(q){
+  const k = q.param.res, n = q.need;
+  const bd = bestMarket();
+  let sell, buy;
+  if (bd && TRADE_VAL[k] !== undefined){ sell = n*heroSellRate(bd,k); buy = n*heroBuyRate(bd,k); }
+  else { const v = GOLD_VAL[k]||1; sell = n*v*0.7; buy = n*v*1.5; }   // ohne Markt: Basiskurse
+  return Math.max(1, Math.floor(Math.min(sell*1.6, buy*0.95)));
+}
+// --- Angebots-Generator: zustandsbasiert, Gewichte laut Anhang 12.2 ---
+function rollQuestOffer(giver){
+  giver = giver || 'tafel';
+  if (!state || !state.quests) return null;
+  const rng = questRng();
+  const R = rathausLvl();
+  const isles = questIsles();
+  const famOf = t=>(t==='schuerfen'||t==='lieferung'||t==='umsatz') ? 'sammlung' : t;
+  const dungeonOk = R >= 6 && dngPortals.some(p=>isles.includes(p.isle));
+  const campOk = !state.quests.active.some(q=>q.typ==='camp') &&
+    !state.quests.offers.some(o=>o.typ==='camp') && !campGroup;   // max. 1 Lager
+  let pool = giver==='buerger'
+    ? [['jagd',40],['lieferung',40],['camp',20]]                  // Bürger: keine Dungeons
+    : [['jagd',30],['camp',25],['sammlung',25],['dungeon',20]];
+  const taken = giver==='buerger' ? [] : state.quests.offers.map(o=>famOf(o.typ));
+  pool = pool.filter(([t])=>{
+    if (taken.includes(famOf(t))) return false;                   // nie zwei identische Typen
+    if (t==='dungeon' && !dungeonOk) return false;
+    if (t==='camp' && !campOk) return false;
+    return true;
+  });
+  if (!pool.length) pool = [['jagd',1]];
+  let sum = 0; for (const [,w] of pool) sum += w;
+  let roll = rng()*sum, typ = pool[0][0];
+  for (const [t,w] of pool){ roll -= w; if (roll <= 0){ typ = t; break; } }
+  if (typ==='sammlung'){
+    const sub = ['schuerfen','lieferung','umsatz'];
+    typ = sub[Math.floor(rng()*3)];
+    if (typ==='umsatz' && !bestMarket()) typ = 'lieferung';       // Umsatz braucht einen Markt
+    if (typ==='schuerfen' && !(state.hero && state.hero.pfanne)) typ = 'lieferung';
+  }
+  const b6 = giver==='buerger' ? 0.6 : 1;                         // Bürger: 60 % der Tafel-Werte
+  const mk = (o)=>Object.assign({ id:'q'+state.quests.seedCtr+'x'+Math.floor(rng()*1e6),
+    giver, buerger: giver==='buerger' ? 1 : 0, have:0, tracked:0, phase:'' }, o);
+  if (typ==='jagd'){
+    const isle = isles[Math.floor(rng()*isles.length)];
+    const bio = (ISLES[isle] && ISLES[isle].biome) || 'wiese';
+    const arts = Object.keys(WILD_ARTS).filter(k=>WILD_ARTS[k].biome===bio);
+    const art = arts[Math.floor(rng()*arts.length)] || 'hase';
+    const n = 3 + Math.floor(rng()*3);
+    const W = WILD_ARTS[art];
+    const nm = W.name.split(' ').slice(1).join(' ');
+    const txts = giver==='buerger'
+      ? ['„'+W.name+' reißen unsere Vorräte! Erlege '+n+' von ihnen, ich bitte dich."',
+         '„Ich traue mich kaum noch vor die Tür – '+n+' '+nm+' weniger wären ein Segen!"']
+      : [W.name+' machen das '+(BIOME_NAME[bio]||'Umland')+' unsicher. Erlege '+n+' von ihnen!',
+         'Die Jäger klagen über '+nm+'. Bring '+n+' zur Strecke – die Stadt zahlt Prämie.'];
+    return mk({ typ:'jagd', param:{art, isle}, need:n,
+      icon: W.name.split(' ')[0], title:'Jagd: '+n+'× '+nm,
+      txt: txts[Math.floor(rng()*txts.length)],
+      reward:{ gold: Math.round((20+5*R)*b6), expSkill:'k', expN: Math.round((20+5*R)*b6) } });
+  }
+  if (typ==='camp'){
+    const n = 3 + Math.floor(rng()*3);
+    const after = state.ai && state.ai.defeated;
+    const txts = after
+      ? ['Versprengte Räuber aus Ragnars alter Bande haben ein Lager aufgeschlagen. Vertreibe sie!']
+      : (giver==='buerger'
+        ? ['„Am Inselrand lagern Räuber – '+n+' Halunken! Bitte vertreibe sie, edler Held."']
+        : ['Räuber haben sich am Inselrand verschanzt. Vertreibe sie, ehe sie frech werden!',
+           'Ein Räuberlager wurde gesichtet – '+n+' Halunken. Nur der Held räumt damit auf!']);
+    return mk({ typ:'camp', param:{}, need:n, icon:'⚔️', title:'Vertreibe '+n+' Räuber',
+      txt: txts[Math.floor(rng()*txts.length)],
+      reward:{ gold: Math.round((35+8*R)*b6), expSkill:'k', expN: Math.round((30+6*R)*b6) } });
+  }
+  if (typ==='dungeon'){
+    const cands = dngPortals.filter(p=>isles.includes(p.isle));
+    let pick = cands[0];
+    if (rng() < 0.6){                                             // 60 % nächstgelegener Dungeon
+      let bd2 = 1e9;
+      for (const p of cands){ const d = dist(p.x,p.y,SX,SY); if (d<bd2){ bd2=d; pick=p; } }
+    } else pick = cands[Math.floor(rng()*cands.length)];
+    const cleared = (state.dungeons.cleared[pick.isle]||0) > 0;    // Wiederhol-Run ist gültig
+    const bossName = DNG_BOSS[pick.tier].name, dName = DNG_LOOK[pick.tier];
+    const variant = rng() < 0.5;
+    const txt = cleared
+      ? bossName+' regt sich erneut in der '+dName+' – schlag ihn zurück!'
+      : (variant ? 'Säubere die '+dName+' (Tier '+pick.tier+') – der Boss wartet in der Tiefe.'
+                 : 'Besiege den '+bossName+' in der '+dName+', damit die Gegend aufatmet.');
+    return mk({ typ:'dungeon', param:{isle:pick.isle, tier:pick.tier}, need:1, icon:'🕳️',
+      title:(variant && !cleared ? 'Säubere die '+dName : 'Besiege den '+bossName),
+      txt, reward:{ gold: 40+10*R, mat: packMat(R) } });          // EXP zahlt der Dungeon selbst
+  }
+  if (typ==='schuerfen'){
+    const n = 8 + Math.floor(rng()*8);
+    return mk({ typ:'schuerfen', param:{}, need:n, icon:'⛏️', title:'Schürfe '+n+' Nuggets',
+      txt:'Die Stadtkasse braucht Glanz: Schürfe '+n+' Nuggets an den Kiesbänken. '+
+        'Der Lohn kommt sofort nach dem letzten Fund.',
+      reward:{ gold: Math.round((15+4*R)*b6), expSkill:'s', expN: Math.round((15+4*R)*b6) } });
+  }
+  if (typ==='umsatz'){
+    const n = 100 + Math.floor(rng()*101);
+    return mk({ typ:'umsatz', param:{}, need:n, icon:'🤝', title:'Setze '+n+' 🪙 am Markt um',
+      txt:'Die Händler wollen Bewegung: Setze als Held '+n+' Gold am Markt um – '+
+        'Kaufen wie Verkaufen zählt, der Lohn kommt sofort.',
+      reward:{ gold: Math.round((10+3*R)*b6) } });
+  }
+  // Lieferung: Ressource aus dem Epochen-Fenster, Menge ≈ 30–60 Gold Verkaufswert
+  const res = ['holz','stein','nahrung','eisen'];
+  if (R >= 11) res.push('stahl');
+  if (R >= 16) res.push('oel');
+  const k = res[Math.floor(rng()*res.length)];
+  const unit = (TRADE_VAL[k] !== undefined ? TRADE_VAL[k] : (GOLD_VAL[k]||1))*0.7;
+  const n = Math.max(5, Math.round((30+rng()*30)/unit/5)*5);
+  const q = mk({ typ:'lieferung', param:{res:k}, need:n, icon:'📦',
+    title:'Liefere '+n+' '+COSTICON[k],
+    txt: giver==='buerger'
+      ? '„Mir fehlen '+n+' '+COSTICON[k]+' – kannst du aushelfen? Ich lege etwas Gold dazu."'
+      : 'Das Lager meldet Bedarf: Bringe '+n+' '+COSTICON[k]+' zur Tafel. Auszahlung nach Marktlage.',
+    reward:{ gold: 0, expSkill:'h', expN: 0 } });
+  q.reward.gold = Math.max(1, Math.round(lieferPayout(q)*b6));    // Vorschau; final bei Abgabe
+  return q;
+}
+// Tafel hält immer genau 2 Angebote (kein Nachschub-Timer)
+function ensureOffers(){
+  if (!questsUnlocked()) return;
+  let guard = 8;
+  while (state.quests.offers.length < 2 && guard-- > 0){
+    const o = rollQuestOffer('tafel');
+    if (o) state.quests.offers.push(o); else break;
+  }
+}
+function declineOffer(o){
+  const i = state.quests.offers.indexOf(o);
+  if (i < 0) return false;
+  state.quests.offers.splice(i,1);       // strafffrei – die Tafel würfelt sofort nach
+  ensureOffers();
+  save();
+  return true;
+}
+function questReady(q){
+  if (q.typ==='lieferung') return (state.res[q.param.res]||0) >= q.need;
+  return q.have >= q.need;
+}
+function trackQuest(id){
+  let hit = false;
+  for (const q of state.quests.active){
+    q.tracked = (q.id===id || q===id) ? 1 : 0;
+    if (q.tracked) hit = true;
+  }
+  if (hit) save();
+  return hit;
+}
+function acceptQuest(o){
+  const Q = state.quests;
+  if (typeof o === 'number') o = Q.offers[o];
+  if (!o || Q.active.includes(o)) return false;
+  if (Q.active.length >= 3){
+    toast('📜 Auftrags-Log voll (max. 3) – erst abgeben oder aufgeben.');
+    return false;
+  }
+  if (o.typ==='camp' && (Q.active.some(q=>q.typ==='camp') || campGroup)){
+    toast('⚔️ Es gibt bereits ein Räuberlager auf der Karte.');
+    return false;
+  }
+  const i = Q.offers.indexOf(o);
+  if (i >= 0) Q.offers.splice(i,1);
+  o.have = 0; o.phase = '';
+  if (!Q.active.some(q=>q.tracked)) o.tracked = 1;
+  Q.active.push(o);
+  if (o.typ==='camp') spawnIntruderCamp();                        // Lager spawnt BEI Annahme
+  ensureOffers();
+  toast('📜 Auftrag angenommen: '+o.icon+' '+o.title, 3400);
+  snd(520,0.08,'triangle',0.04);
+  save();
+  return o;
+}
+function abandonQuest(id){
+  const Q = state.quests;
+  const i = Q.active.findIndex(q=>q.id===id || q===id);
+  if (i < 0) return false;
+  const q = Q.active[i];
+  Q.active.splice(i,1);                  // keine Strafe, kein Cooldown, kein Ruf-Verlust
+  if (q.tracked && Q.active.length) Q.active[0].tracked = 1;
+  unmarkCitizenFor(q.id);
+  toast('🗑️ Auftrag aufgegeben – ohne Strafe.', 2600);
+  save();
+  return true;                           // verwaistes Lager despawnt über den 60-s-Timer
+}
+function completeQuest(q, force){
+  const Q = state.quests;
+  if (typeof q !== 'object') q = Q.active.find(a=>a.id===q);
+  if (!q || !Q.active.includes(q)) return false;
+  if (!force && !(questReady(q) || q.phase==='abgeben')){
+    toast('📜 '+q.title+': noch nicht erfüllt ('+q.have+'/'+q.need+').');
+    return false;
+  }
+  let gold = q.reward.gold||0, expN = q.reward.expN||0;
+  if (q.typ==='lieferung'){
+    if (!force && (state.res[q.param.res]||0) < q.need){
+      toast('Nicht genug '+COSTICON[q.param.res]+' für die Lieferung.');
+      return false;
+    }
+    state.res[q.param.res] = Math.max(0, (state.res[q.param.res]||0) - q.need);
+    gold = lieferPayout(q);                                       // Klemme zur Marktlage jetzt
+    if (q.buerger) gold = Math.max(1, Math.round(gold*0.6));
+    expN = Math.round(gold/25);                                   // 1 Handel-EXP je 25 🪙
+  }
+  state.res.gold += gold;
+  if (q.reward.mat) addLoot(q.reward.mat);
+  if (expN && q.reward.expSkill) giveHeroExp(q.reward.expSkill, expN);
+  let extra = '';
+  if (q.typ==='camp' && Math.random() < 0.10){                    // 10 % Ausrüstungs-Drop
+    if (grantEquipDrop(questDropTier())) extra = ' · 🎁';
+  }
+  if (q.typ==='dungeon' && Math.random() < 0.10 && state.hero){   // 10 % Amulett-Rezept
+    const h = state.hero;
+    h.rezepte = h.rezepte || {};
+    const free = ['gluecksamulett','bergmannstalisman','haendlersiegel'].filter(a=>!h.rezepte[a]);
+    if (free.length){
+      const a = free[(Math.random()*free.length)|0];
+      h.rezepte[a] = 1;
+      toast('📜 Amulett-Rezept als Dank: '+HERO_ITEMS[a].name+' – ab sofort schmiedbar!', 4600);
+      extra = ' · 📜';
+    }
+  }
+  Q.active.splice(Q.active.indexOf(q), 1);
+  if (q.tracked && Q.active.length) Q.active[0].tracked = 1;
+  unmarkCitizenFor(q.id);
+  Q.done++;
+  if (Q.done===1 && !chronicleHas('quest1'))
+    chronicleAdd('quest1', '📜 Der erste Auftrag ist erfüllt – '+reichName()+' spricht davon.');
+  if (Q.done===10 && !chronicleHas('quest10'))
+    chronicleAdd('quest10', '📜 Zehn Aufträge erledigt – der Held hat einen Ruf.');
+  if (Q.done===50 && !chronicleHas('quest50'))
+    chronicleAdd('quest50', '📜 Fünfzig Aufträge – Balladen besingen den Helden.');
+  if (q.buerger){
+    Q.gratitude = 120;                   // kein Stapeln – neue Abgabe setzt nur den Timer zurück
+    toast('😊 Die Bürger von '+reichName()+' sind dankbar! (+5 pp Zufriedenheit für 120 s)', 4600);
+  }
+  toast('✅ '+q.icon+' '+q.title+' erfüllt: +'+gold+' 🪙'+
+    (expN && q.reward.expSkill ? ' · ✨'+expN+' EXP' : '')+extra, 4600);
+  snd(600,0.1,'triangle',0.05); snd(840,0.16,'triangle',0.05);
+  ensureOffers();
+  save();
+  return true;
+}
+// Fortschritts-Hooks (killWild/mineRound/Heldenhandel/Boss-Kill/Lager-Kills rufen hier an)
+function questNotify(kind, val){
+  if (!state || !state.quests) return;
+  for (const q of state.quests.active.slice()){
+    if (q.phase==='abgeben' || q.have >= q.need) continue;
+    if (kind==='jagd' && q.typ==='jagd'){
+      if (val.art !== q.param.art) continue;
+      if ((isleParent[isleOf(val.x,val.y)]||0) !== q.param.isle) continue;
+      q.have++;
+    }
+    else if (kind==='mine' && q.typ==='schuerfen') q.have += val;
+    else if (kind==='umsatz' && q.typ==='umsatz') q.have += val;
+    else if (kind==='camp' && q.typ==='camp') q.have += val;
+    else if (kind==='dungeon' && q.typ==='dungeon' && q.param.isle===val) q.have = q.need;
+    else continue;
+    if (q.have >= q.need){
+      q.have = q.need;
+      if (q.typ==='schuerfen' || q.typ==='umsatz'){
+        completeQuest(q, true);          // Auto-Abschluss – ein Rückweg wäre Leerlauf
+      } else {
+        q.phase = 'abgeben';
+        toast('📜 '+q.title+': erledigt – Abgabe beim Auftraggeber!', 3800);
+        snd(660,0.1,'triangle',0.04);
+      }
+    }
+  }
+}
+// Jagd-Fallback: Spawner bevorzugt die geforderte Art, bis die Quest erfüllbar ist
+function questPreferredArt(p){
+  if (!state || !state.quests) return null;
+  for (const q of state.quests.active){
+    if (q.typ!=='jagd' || q.phase==='abgeben' || q.param.isle!==p) continue;
+    const alive = wildlife.reduce((n,a)=>n + (a.art===q.param.art && a.parent===p ? 1 : 0), 0);
+    if (alive < q.need - q.have) return q.param.art;
+  }
+  return null;
+}
+// --- ⚔️ Eindringlings-Lager: eigene Liste campEnemies, komplett getrennt von Wellen/KI ---
+let campEnemies = [], campGroup = null, campOrphanT = 0, campRetryT = 0;
+function campQuest(){ return state && state.quests && state.quests.active.find(q=>q.typ==='camp'); }
+function makeCampProps(){
+  const g = new THREE.Group();
+  const tent = (px,pz,ry,s)=>{
+    const t2 = new THREE.Group();
+    t2.add(prism(1.15*s, 0.75*s, 1.0*s, PM.hoodDark, 0, 0.02, 0));
+    t2.add(bx(0.06,0.7*s,0.06, M.woodDark, 0.45*s, 0, 0));
+    t2.position.set(px, 0, pz); t2.rotation.y = ry;
+    g.add(t2);
+  };
+  tent(-0.95, 0.4, 0.5, 1);
+  tent(1.0, -0.55, -1.1, 0.85);
+  for (let i=0;i<5;i++){                                          // Feuerstelle
+    const st2 = mesh(new THREE.IcosahedronGeometry(0.09,0), M.stoneDark, false, false);
+    const a = Math.PI*2*i/5;
+    st2.position.set(Math.cos(a)*0.32, 0.05, Math.sin(a)*0.32);
+    g.add(st2);
+  }
+  g.add(bx(0.2,0.24,0.2, M.fire, 0, 0.12, 0));
+  g.traverse(o=>{ if (o.isMesh){ o.castShadow = false; o.receiveShadow = false; } });
+  return g;
+}
+// Ort: 70 % Rand der Spieler-Insel, 30 % Ecke einer fremden, unbesiedelten Insel (Hafen nötig)
+function findCampSpot(){
+  const home = isleParent[playerIsle()]||0;
+  let p = home;
+  if (Math.random() < 0.3 && state.buildings.some(b=>b.t==='hafen' && !b.ruin)){
+    const used = questIsles();
+    const f = [];
+    for (let i=0;i<ISLES.length;i++){
+      if (i===home || used.includes(i)) continue;
+      if (state.ai && !state.ai.defeated &&
+          (isleParent[isleOf(state.ai.x, state.ai.y)]||0)===i) continue;
+      f.push(i);
+    }
+    if (f.length) p = f[(Math.random()*f.length)|0];
+  }
+  const I = ISLES[p];
+  for (const minD of [12, 8, 5]){        // Failsafe: Mindestabstand lockern statt nie zu spawnen
+    for (let tries=0;tries<220;tries++){
+      const a = Math.random()*Math.PI*2, r = I.r*(0.65+Math.random()*0.45);
+      const x = Math.round(I.x+Math.cos(a)*r), y = Math.round(I.y+Math.sin(a)*r);
+      if (!inMap(x,y) || !walkable(x,y,true)) continue;
+      if ((isleParent[isleOf(x,y)]||0) !== p) continue;
+      if (!farFromBuildings(x,y,minD)) continue;
+      return [x,y];
+    }
+  }
+  return null;
+}
+function spawnIntruderCamp(x, y){
+  if (campGroup || !state || !state.quests) return false;         // max. 1 Lager gleichzeitig
+  const q = campQuest();
+  const n = (state.quests.camp && state.quests.camp.left > 0)
+    ? state.quests.camp.left : (q ? q.need : 4);
+  if (n <= 0) return false;
+  if (x===undefined){
+    const spot = findCampSpot();
+    if (!spot) return false;
+    x = spot[0]; y = spot[1];
+  }
+  const l = findLanding(Math.round(x), Math.round(y));
+  x = l[0]; y = l[1];
+  state.quests.camp = { x, y, left:n };
+  campGroup = makeCampProps();
+  campGroup.position.set(wx(x), Math.max(hAt(x,y),0), wz(y));
+  fxGroup.add(campGroup);
+  // Räuber-Werte: Wellen-Formel ×0,8 – der Held schafft das Lager solo in 1–3 Minuten
+  const hp = 42*(1+0.12*(state.wave-1))*0.8;
+  for (let i=0;i<n;i++){
+    const a = Math.PI*2*i/n, d = 1.2 + Math.random();
+    const p2 = findLanding(Math.round(x+Math.cos(a)*d), Math.round(y+Math.sin(a)*d));
+    campEnemies.push({ x:p2[0], y:p2[1], hp, maxhp:hp, dmg:5+0.7*state.wave, cd:0,
+      wait:Math.random()*2, ph:Math.random()*7, dir:Math.random()*6, moving:false,
+      speed:1.1, camp:1, mesh: makePerson('enemy') });
+  }
+  campOrphanT = 0;
+  return true;
+}
+function removeCamp(){
+  for (const e of campEnemies) removeUnit(e);
+  campEnemies = [];
+  if (campGroup){ fxGroup.remove(campGroup); disposeGroup(campGroup); campGroup = null; }
+  if (state && state.quests) state.quests.camp = null;
+}
+function updateCamp(dt){
+  const q = campQuest();
+  // Failsafe/Reload: Quest läuft, aber kein Lager auf der Karte → (wieder) aufbauen
+  if (q && q.phase!=='abgeben' && !campGroup){
+    campRetryT -= dt;
+    if (campRetryT <= 0){
+      campRetryT = 5;
+      if (state.quests.camp && state.quests.camp.left > 0)
+        spawnIntruderCamp(state.quests.camp.x, state.quests.camp.y);
+      else if (!state.quests.camp) spawnIntruderCamp();
+    }
+  }
+  if (!campGroup && !campEnemies.length) return;
+  const c = state.quests.camp || { x:0, y:0 };
+  // Bewegungs-Schritt deckeln (wie Wildtiere): große dt-Sprünge dürfen die Räuber
+  // nicht über die 3-Kachel-Leine hinaus teleportieren
+  const bdt = Math.min(dt, 0.1);
+  for (const e of campEnemies){
+    e.cd = Math.max(0, e.cd - bdt);
+    // Angriff nur auf den Helden < 5 Kacheln; Leine 3 Kacheln ums Lager, nie Marsch zur Stadt
+    const dh = heroAlive() && !hero.sail && !dungeon ? dist(e.x,e.y,hero.x,hero.y) : 1e9;
+    if (dh < 5){
+      if (dh > 0.85){
+        if (dist(c.x,c.y,e.x,e.y) < 3){ e.moving = true; steer(e, hero.x, hero.y, e.speed, bdt); }
+        else { e.moving = true; steer(e, c.x, c.y, e.speed, bdt); }  // zurück an die Leine
+      } else {
+        e.moving = false;
+        e.dir = Math.atan2(hero.y-e.y, hero.x-e.x);
+        if (e.cd <= 0){
+          e.cd = 1.2;
+          hero.hp -= e.dmg;
+          spawnBurst(wx(hero.x), Math.max(hAt(hero.x,hero.y),0)+0.5, wz(hero.y), 3, 0xff8a5a);
+          snd(150,0.06,'square',0.03);
+        }
+      }
+      continue;
+    }
+    // lagern/patrouillieren im 3-Kachel-Radius
+    if (e.wait > 0){ e.wait -= bdt; e.moving = false; continue; }
+    if (e.tx === undefined || dist(e.x,e.y,e.tx,e.ty) < 0.5){
+      const a = Math.random()*Math.PI*2, r = 0.8 + Math.random()*2.0;
+      e.tx = c.x + Math.cos(a)*r; e.ty = c.y + Math.sin(a)*r;
+      if (!walkable(e.tx,e.ty,true)){ e.tx = c.x; e.ty = c.y; }
+    }
+    e.moving = true;
+    if (steer(e, e.tx, e.ty, e.speed*0.5, bdt) || Math.random() < 0.002){
+      e.tx = undefined; e.wait = 1.5 + Math.random()*3; e.moving = false;
+    }
+  }
+  // Kills verarbeiten – nur der Held kann Lager-Räuber verletzen (killLoot gilt je Räuber)
+  for (let i=campEnemies.length-1;i>=0;i--){
+    const e = campEnemies[i];
+    if (e.hp > 0) continue;
+    killLoot(e);
+    spawnBurst(wx(e.x), Math.max(hAt(e.x,e.y),0)+0.4, wz(e.y), 7, 0xff8a5a);
+    removeUnit(e);
+    campEnemies.splice(i,1);
+    if (state.quests.camp) state.quests.camp.left = campEnemies.length;
+    questNotify('camp', 1);
+  }
+  if (!campEnemies.length && campGroup){
+    // Zelte kollabieren; Plünder-Bonus nur bei laufender Quest
+    const q2 = campQuest();
+    if (q2){
+      const bonus = 10 + 2*rathausLvl();
+      addLoot({ gold: bonus });
+      toast('⚔️ Lager zerschlagen! Plünder-Bonus +'+bonus+' 🪙', 4200);
+    }
+    spawnBurst(campGroup.position.x, campGroup.position.y+0.5, campGroup.position.z, 10, 0xd8a05a);
+    removeCamp();
+    save();
+    return;
+  }
+  // verwaistes Lager (Quest aufgegeben): despawnt nach 60 s
+  if (campGroup && !q){
+    campOrphanT += dt;
+    if (campOrphanT >= 60){
+      spawnBurst(campGroup.position.x, campGroup.position.y+0.5, campGroup.position.z, 8, 0x9aa7bb);
+      removeCamp();
+    }
+  } else campOrphanT = 0;
+}
+// --- ❗-Bürger als Questgeber (Laufzeit; folk wird nicht gespeichert) ---
+let citizenT = 300;                      // 240–360 s bis zur nächsten Markierung
+let qMarkTexA = null, qMarkTexB = null;
+function questMarkTex(ok){
+  const make = (sym, col)=>{
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g2 = c.getContext('2d');
+    g2.font = 'bold 52px sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle';
+    g2.lineWidth = 7; g2.strokeStyle = 'rgba(20,16,4,0.9)';
+    g2.strokeText(sym, 32, 34);
+    g2.fillStyle = col;
+    g2.fillText(sym, 32, 34);
+    const tx = new THREE.CanvasTexture(c);
+    tx.userData.shared = true;
+    return tx;
+  };
+  if (ok) return qMarkTexB = qMarkTexB || make('✓', '#4ade6a');
+  return qMarkTexA = qMarkTexA || make('!', '#ffd736');
+}
+function makeQMarkSprite(ok){
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: questMarkTex(ok),
+    depthTest:false, transparent:true }));
+  spr.scale.set(0.4,0.4,1);
+  spr.position.y = 1.15;                 // 0,5 Einheiten über dem Kopf
+  return spr;
+}
+function setCitizenMark(f, ok){
+  if (f.qspr){ f.mesh.remove(f.qspr); f.qspr.material.dispose(); f.qspr = null; }
+  if (ok===null){ f.qsprOk = 0; return; }
+  f.qspr = makeQMarkSprite(ok);
+  f.qsprOk = ok ? 1 : 0;
+  f.mesh.add(f.qspr);
+}
+function markCitizen(){
+  if (!questsUnlocked()) return null;
+  if (folk.some(f=>f.qmark)) return null;                         // höchstens 1 ❗ gleichzeitig
+  const cands = folk.filter(f=>!f.pin);
+  if (!cands.length) return null;
+  const o = rollQuestOffer('buerger');
+  if (!o) return null;
+  const f = cands[(Math.random()*cands.length)|0];
+  f.pin = 1; f.qmark = 1; f.qoffer = o;
+  setCitizenMark(f, false);
+  return f;
+}
+function unmarkCitizen(f){
+  setCitizenMark(f, null);
+  f.qmark = 0; f.qoffer = null; f.questId = null; f.pin = 0;
+}
+function unmarkCitizenFor(qid){
+  for (const f of folk) if (f.questId===qid) unmarkCitizen(f);
+}
+function openCitizenDialog(f){
+  if (!f) return;
+  const q = f.questId ? state.quests.active.find(a=>a.id===f.questId) : null;
+  if (q){
+    // Abgabe beim Bürger, sobald die Quest bereit ist – sonst freundlicher Zwischenstand
+    if (q.phase==='abgeben' || questReady(q)){
+      if (completeQuest(q)) hideInfo();
+      return;
+    }
+    $('ipName').textContent = '💬 Bürger von '+reichName();
+    $('ipDesc').textContent = '„Wie steht es um meinen Auftrag? Ich zähle auf dich!"';
+    $('ipStats').textContent = q.icon+' '+q.title+' · '+q.have+'/'+q.need;
+    $('ipBtns').innerHTML = '';
+    ui.info.style.display = 'block';
+    return;
+  }
+  const o = f.qoffer;
+  if (!o) return;
+  $('ipName').textContent = '❗ Ein Bürger bittet um Hilfe';
+  $('ipDesc').textContent = o.txt;
+  $('ipStats').textContent = 'Belohnung: '+rewardTxt(o);
+  const btns = $('ipBtns'); btns.innerHTML = '';
+  const ok = document.createElement('button');
+  ok.className = 'btn-green'; ok.textContent = '✅ Annehmen';
+  ok.addEventListener('click', ()=>{
+    const q2 = acceptQuest(o);
+    if (q2){
+      f.qmark = 0; f.qoffer = null; f.questId = q2.id;            // Pin bleibt bis zur Abgabe
+      setCitizenMark(f, null);
+    }
+    hideInfo();
+  });
+  btns.appendChild(ok);
+  const no = document.createElement('button');
+  no.className = 'btn-red'; no.textContent = '✖️ Ablehnen';
+  no.addEventListener('click', ()=>{ unmarkCitizen(f); hideInfo(); });   // strafffrei
+  btns.appendChild(no);
+  ui.info.style.display = 'block';
+}
+// Kegel-Zielsuche auf markierte Bürger (❗-Angebot oder ✅-Abgabe)
+function egoTargetCitizen(){
+  if (!heroAlive()) return null;
+  let best = null, bd2 = 2.51;
+  for (const f of folk){
+    if (!f.qmark && !f.questId) continue;
+    const d = dist(hero.x,hero.y,f.x,f.y);
+    if (d >= bd2) continue;
+    const an = Math.atan2(f.y-hero.y, f.x-hero.x);
+    const da = Math.atan2(Math.sin(an-egoYaw), Math.cos(an-egoYaw));
+    if (Math.abs(da) > 35*Math.PI/180 && d > 0.9) continue;
+    bd2 = d; best = f;
+  }
+  return best;
+}
+// --- Auftrags-Sheet (Tafel/Rathaus-Panel/Heldenhalle/HUD-Zeile) ---
+function rewardTxt(q){
+  const p = [];
+  if (q.reward.gold) p.push((q.typ==='lieferung' ? '🪙 ~' : '🪙 ')+q.reward.gold);
+  if (q.reward.mat) p.push(Object.entries(q.reward.mat).map(([k,v])=>COSTICON[k]+v).join(' '));
+  if (q.reward.expN && q.reward.expSkill)
+    p.push('✨ '+q.reward.expN+' '+({k:'⚔️',s:'⛏️',h:'🤝'}[q.reward.expSkill]||'')+'-EXP');
+  if (q.typ==='camp') p.push('🎁 10 % Ausrüstung');
+  if (q.typ==='dungeon') p.push('📜 10 % Rezept');
+  return p.join(' · ');
+}
+function openQuestSheet(){
+  const Q = state.quests;
+  if (!Q) return;
+  ensureOffers();
+  const ok = tafelOk();
+  $('ipName').textContent = '📜 Aufträge der Anschlagtafel';
+  $('ipDesc').textContent = ok
+    ? 'Bis zu 3 Aufträge gleichzeitig (1 verfolgt + 2 wartend). Ablehnen und Aufgeben sind jederzeit strafffrei.'
+    : '🔥 Das Rathaus liegt in Trümmern – die Tafel ist erst nach der Reparatur nutzbar.';
+  $('ipStats').textContent = '✅ Erledigt: '+Q.done;
+  const btns = $('ipBtns'); btns.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'max-height:38vh;overflow-y:auto;margin-top:4px;padding-right:2px';
+  const head = (txt)=>{
+    const h = document.createElement('div');
+    h.style.cssText = 'margin-top:7px;font-size:12px;font-weight:700;color:#9fb4d8';
+    h.textContent = txt; wrap.appendChild(h);
+  };
+  const row = ()=>{
+    const r = document.createElement('div');
+    r.style.cssText = 'display:flex;align-items:center;gap:7px;margin-top:5px;'+
+      'padding-top:5px;border-top:1px solid rgba(255,255,255,.1)';
+    wrap.appendChild(r); return r;
+  };
+  const lab = (r, main, sub)=>{
+    const l = document.createElement('div');
+    l.style.cssText = 'flex:1;font-size:12.5px;color:#cfe0f0;line-height:1.35';
+    const a = document.createElement('div'); a.textContent = main; l.appendChild(a);
+    if (sub){
+      const b2 = document.createElement('div');
+      b2.style.cssText = 'font-size:11px;color:#9aa7bb'; b2.textContent = sub;
+      l.appendChild(b2);
+    }
+    r.appendChild(l);
+  };
+  const btn = (r, txt, cls, fn, dis)=>{
+    const b2 = document.createElement('button');
+    b2.className = cls;
+    b2.style.cssText = 'margin:0;flex-shrink:0;font-size:14px;padding:8px 11px;min-width:44px';
+    b2.textContent = txt;
+    if (dis){ b2.disabled = true; b2.style.opacity = '.45'; }
+    else b2.addEventListener('click', fn);
+    r.appendChild(b2);
+  };
+  head('Angenommen ('+Q.active.length+'/3)');
+  if (!Q.active.length){
+    const d2 = document.createElement('div');
+    d2.style.cssText = 'font-size:11.5px;color:#9aa7bb;margin-top:4px';
+    d2.textContent = 'Noch kein Auftrag angenommen.';
+    wrap.appendChild(d2);
+  }
+  for (const q of Q.active){
+    const r = row();
+    const prog = q.typ==='lieferung'
+      ? Math.min(q.need, Math.floor(state.res[q.param.res]||0))+'/'+q.need
+      : q.have+'/'+q.need;
+    lab(r, (q.tracked?'🎯 ':'')+q.icon+' '+q.title+' · '+prog,
+      rewardTxt(q)+(q.giver==='buerger' ? ' · Abgabe beim Bürger' : ''));
+    if (!q.tracked) btn(r, '🎯', 'btn-blue', ()=>{ trackQuest(q.id); openQuestSheet(); });
+    if (questReady(q) || q.phase==='abgeben')
+      btn(r, '✔️', 'btn-green', ()=>{ if (completeQuest(q)) openQuestSheet(); },
+        q.giver!=='tafel' || !ok);
+    btn(r, '🗑️', 'btn-red', ()=>{ abandonQuest(q.id); openQuestSheet(); });
+  }
+  head('Angebote ('+Q.offers.length+')');
+  for (const o of Q.offers){
+    const r = row();
+    lab(r, o.icon+' '+o.title, o.txt+' · '+rewardTxt(o));
+    btn(r, '✅', 'btn-green', ()=>{ if (acceptQuest(o)) openQuestSheet(); },
+      !ok || Q.active.length >= 3);
+    btn(r, '✖️', 'btn-red', ()=>{ declineOffer(o); openQuestSheet(); }, !ok);
+  }
+  btns.appendChild(wrap);
+  ui.info.style.display = 'block';
+}
+// --- Ziel der verfolgten Quest (Minimap-Marker + HUD-Zeile) ---
+function questTargetPos(q){
+  if (!q) return null;
+  if (q.phase==='abgeben' || q.typ==='lieferung'){
+    if (q.giver==='buerger'){
+      const f = folk.find(f2=>f2.questId===q.id);
+      if (f) return [f.x, f.y];
+    }
+    const r = state.buildings.find(b=>b.t==='rathaus');
+    return r ? buildingCenter(r) : null;
+  }
+  if (q.typ==='camp') return state.quests.camp ? [state.quests.camp.x, state.quests.camp.y] : null;
+  if (q.typ==='dungeon'){
+    const p = dngPortals.find(p2=>p2.isle===q.param.isle);
+    return p ? [p.x, p.y] : null;
+  }
+  if (q.typ==='jagd'){
+    const I = ISLES[q.param.isle];
+    return I ? [Math.round(I.x), Math.round(I.y)] : null;
+  }
+  if (q.typ==='schuerfen'){
+    let sp = null, bd2 = 1e9;
+    const hx = hero ? hero.x : SX, hy = hero ? hero.y : SY;
+    for (const s of (state.mineSpots||[])){
+      if (s.left <= 0) continue;
+      const d = dist(s.x,s.y,hx,hy);
+      if (d < bd2){ bd2 = d; sp = s; }
+    }
+    return sp ? [sp.x, sp.y] : null;
+  }
+  if (q.typ==='umsatz'){
+    const m = bestMarket();
+    return m ? buildingCenter(m) : null;
+  }
+  return null;
+}
+let questTrackMin = false;
+$('questTrack').addEventListener('click', ()=>{
+  if (egoMode) openQuestSheet();
+  else questTrackMin = !questTrackMin;   // Orbit: Zeile abblendbar per Tipp
+});
+function updateQuestTrack(){
+  const el = $('questTrack');
+  const trk = state && state.quests && state.quests.active.find(q=>q.tracked);
+  if (!trk || !gameStarted || gameOver || dungeon || (hero && hero.sail)){
+    el.style.display = 'none';
+    return;
+  }
+  el.classList.toggle('orbit', !egoMode);
+  if (!egoMode && questTrackMin){ el.textContent = '📜'; el.style.display = 'block'; return; }
+  const ready = questReady(trk) || trk.phase==='abgeben';
+  const prog = trk.typ==='lieferung'
+    ? Math.min(trk.need, Math.floor(state.res[trk.param.res]||0))+'/'+trk.need
+    : trk.have+'/'+trk.need;
+  let line = trk.icon+' '+trk.title+' · '+(ready ? 'Abgeben!' : prog);
+  const tgt = questTargetPos(trk);
+  if (egoMode && hero && tgt){
+    const d = Math.round(dist(hero.x,hero.y,tgt[0],tgt[1])*2);    // Kachel ≈ 2 m
+    const a = Math.atan2(tgt[1]-hero.y, tgt[0]-hero.x);
+    const da = Math.atan2(Math.sin(a-egoYaw), Math.cos(a-egoYaw));
+    const dirs = ['↑','↗','→','↘','↓','↙','←','↖'];
+    line += ' · '+d+' m '+dirs[((Math.round(da/(Math.PI/4)))%8+8)%8];
+    if ((isleParent[isleOf(tgt[0],tgt[1])]||0) !== (isleParent[isleOf(hero.x,hero.y)]||0))
+      line += ' ⛵';                     // Ziel auf anderer Insel: Hafenroute nötig
+  }
+  el.textContent = line;
+  el.style.display = 'block';
+}
+// --- Haupt-Update: Angebote, ❗-Bürger, Bürger-Fallback, Lager, Dankbarkeits-Timer ---
+function updateQuests(dt){
+  const Q = state.quests;
+  if (!Q) return;
+  if (Q.gratitude > 0) Q.gratitude = Math.max(0, Q.gratitude - dt);
+  if (!questsUnlocked()){ updateCamp(dt); return; }               // Lager-Reste trotzdem pflegen
+  ensureOffers();
+  // ❗-Bürger: alle 240–360 s, wenn kein Bürger-Angebot offen ist
+  if (!folk.some(f=>f.qmark)){
+    citizenT -= dt;
+    if (citizenT <= 0){
+      markCitizen();
+      citizenT = 240 + Math.random()*120;
+    }
+  }
+  // Marker-Bobbing + Questgeber-Fallback (Bürger flüchtig → Abgabe an der Tafel)
+  for (const f of folk)
+    if (f.qspr) f.qspr.position.y = 1.15 + Math.sin(state.time*2.5 + (f.ph||0))*0.06;
+  for (const q of Q.active){
+    if (q.giver !== 'buerger') continue;
+    const f = folk.find(f2=>f2.questId===q.id);
+    if (!f){
+      q.giver = 'tafel';                 // buerger-Flag bleibt – die Stadt dankt, nicht die Person
+      toast('📜 '+q.title+': Melde dich am Rathaus.', 4200);
+    } else if (q.phase==='abgeben' && (!f.qspr || !f.qsprOk)){
+      setCitizenMark(f, true);           // ✅ über dem Kopf: bereit zur Abgabe
+    }
+  }
+  updateCamp(dt);
 }
 
 // ============================== RAUMFAHRT: PLANETEN-KOLONIEN ==============================
@@ -6290,6 +7116,14 @@ function handleTap(sx,sy){
     showHeroInfo(); hideSelQuads(); snd(560,0.06,'sine',0.03);
     return;
   }
+  // ❗-Bürger (24d): gleiche Tap-Priorität wie der Held – vor Gebäuden
+  const fq = folk.find(f=>(f.qmark || f.questId) && dist(tx,ty,f.x,f.y) < 1.3);
+  if (fq){
+    selected = null; hideSelQuads();
+    openCitizenDialog(fq);
+    snd(560,0.06,'sine',0.03);
+    return;
+  }
   const k = idx(tx,ty);
   if (occ[k]){
     selected = { kind:'building', bd: state.buildings[occ[k]-1] };
@@ -6459,6 +7293,15 @@ function showBuildingInfo(bd){
       btns.appendChild(sw);
     }
   }
+  // 📜 Anschlagtafel (24d): Aufträge ab Heldenhalle + Held
+  if (bd.t==='rathaus' && questsUnlocked()){
+    ensureOffers();
+    const qb = document.createElement('button');
+    qb.className = 'btn-blue';
+    qb.textContent = '📜 Aufträge (' + state.quests.offers.length + ')';
+    qb.addEventListener('click', ()=>openQuestSheet());
+    btns.appendChild(qb);
+  }
   // Raumhafen: Planeten-Expeditionen
   if (b.space){
     const list = document.createElement('div');
@@ -6555,6 +7398,14 @@ function showBuildingInfo(bd){
       cb2.textContent = '🎮 Held steuern';
       cb2.addEventListener('click', ()=>{ hideInfo(); selected = null; hideSelQuads(); enterEgo(); });
       btns.appendChild(cb2);
+      if (questsUnlocked()){
+        ensureOffers();
+        const qb2 = document.createElement('button');
+        qb2.className = 'btn-blue';
+        qb2.textContent = '📜 Aufträge (' + state.quests.offers.length + ')';
+        qb2.addEventListener('click', ()=>openQuestSheet());
+        btns.appendChild(qb2);
+      }
     }
   }
   // 🎒 Beutel leeren (Abgabepunkte): Held muss in der Nähe stehen
@@ -6764,6 +7615,8 @@ function updateHUD(dt){
   const zuf = satisfaction();
   ui.zuf.textContent = Math.round(zuf.total*100) + '%';
   $('rZuf').classList.toggle('warn', zuf.total < 0.6);
+  // 😊+ „Dankbare Bürger“ (24d): Chip leuchtet grün, solange der Bonus läuft
+  $('rZuf').classList.toggle('happy', !!(state.quests && state.quests.gratitude > 0));
   $('rNahrung').classList.toggle('warn', state.res.nahrung < 10);
   if (state.waveActive) ui.wave.textContent = 'Welle ' + state.wave + ' – ' + enemies.length + ' Feinde!';
   else {
@@ -6794,6 +7647,7 @@ function updateHUD(dt){
         : '⚠️ ' + nAtk + ' Angreifer! 🏙️ Zur Stadt';
     } else bn.style.display = 'none';
   }
+  updateQuestTrack();                    // 24d: Tracking-Zeile (Ego + Orbit)
   refreshMenu();
   updateAcademyProg();
   updateHint();
@@ -6906,6 +7760,17 @@ function drawMinimap(){
   for (const p of dngPortals){
     dot(p.x, p.y, '#a05ae8', 8);
     g.fillText('🕳️', (p.x+0.5)*S, (p.y+0.5)*S);
+  }
+  // Quest-Marker (24d): goldenes ❗ am Ziel der VERFOLGTEN Quest (kein Marker-Wald)
+  const trkQ = state.quests && state.quests.active.find(q=>q.tracked);
+  if (trkQ){
+    const t2 = questTargetPos(trkQ);
+    if (t2){
+      g.fillStyle = '#ffd736';
+      g.font = 'bold 16px sans-serif';
+      g.fillText('❗', (t2[0]+0.5)*S, (t2[1]+0.5)*S);
+      g.font = '12px sans-serif';
+    }
   }
   // Held (gold) – im Dungeon zählt die Oberwelt-Position (Eingang)
   if (state.hero && hero) dot(dungeon ? state.hero.x : hero.x, dungeon ? state.hero.y : hero.y, '#ffe9a0', 6);
@@ -7064,6 +7929,8 @@ function save(){
       mineCtr: state.mineCtr||null,
       // 24c: NUR der Abschlusszähler – der laufende Dungeon-Run wird bewusst nicht gespeichert
       dungeons: state.dungeons||{ cleared:{} },
+      // 24d: Angebote werden MITgespeichert (kein Reroll-Farming); Lager als {x,y,left}
+      quests: state.quests||{ offers:[], active:[], done:0, seedCtr:0, gratitude:0, camp:null },
     }));
   }catch(_){}
 }
@@ -7121,6 +7988,18 @@ function load(){
     state.mineCtr = d.mineCtr || null;
     // Dungeons (24c): Alt-Saves ohne Feld → leerer Zähler; Runs sind nie Teil des Saves
     state.dungeons = (d.dungeons && d.dungeons.cleared) ? { cleared: d.dungeons.cleared } : { cleared:{} };
+    // Quests (24d): Alt-Saves ohne Feld → Standardobjekt; Angebote werden NICHT neu gewürfelt
+    state.quests = Object.assign({ offers:[], active:[], done:0, seedCtr:0, gratitude:0, camp:null },
+      d.quests || {});
+    if (!Array.isArray(state.quests.offers)) state.quests.offers = [];
+    if (!Array.isArray(state.quests.active)) state.quests.active = [];
+    // Bürger-Questgeber sind flüchtig (folk unsaved) → Abgabe wandert zur Tafel,
+    // der „Dankbare Bürger“-Bonus bleibt über das buerger-Flag erhalten
+    for (const q of state.quests.active)
+      if (q.giver==='buerger'){
+        q.giver = 'tafel';
+        pendingToasts.push('📜 '+q.title+': Melde dich am Rathaus.');
+      }
     chronWaveRecord = state.wave>1 ? waveStrength(state.wave-1) : 0;   // Rekord neu seeden
     genMap(); buildWorld();
     for (const b of d.buildings){
@@ -7132,6 +8011,12 @@ function load(){
     updateWalls();
     initMineSpots();
     if (state.hero) spawnHeroUnit();     // Position wird auf findLanding korrigiert
+    // Eindringlings-Lager (24d) aus {x,y,left} rekonstruieren – nur solange die Quest läuft
+    if (state.quests.camp && state.quests.camp.left > 0 &&
+        state.quests.active.some(q=>q.typ==='camp'))
+      spawnIntruderCamp(state.quests.camp.x, state.quests.camp.y);
+    else if (state.quests.camp && !state.quests.active.some(q=>q.typ==='camp'))
+      state.quests.camp = null;
     // Migration Etappe 21: Panzer/Flieger kommen jetzt aus Fabrik & Flugfeld (einmaliger Hinweis)
     if (!state.fabHint && state.buildings.some(b=>b.t==='kaserne' && lvlOf(b)>=16) &&
         !state.buildings.some(b=>b.t==='fabrik')){
@@ -7214,6 +8099,7 @@ function clearEntities(){
   }
   for (const a of wildlife) removeUnit(a);
   wildlife = []; wildSpawnT = 10; mining = null; sailPick = null;
+  removeCamp(); campOrphanT = 0; campRetryT = 0; citizenT = 300;   // Quest-Laufzeit (24d)
   folk = []; soldiers = []; enemies = []; arrows = []; aiGuards = []; expeditions = [];
   spaceMissions = [];
   particles.length = 0; fallingTrees.length = 0;
@@ -7282,6 +8168,7 @@ function loop(now){
     updateHero(sdt);
     updateDungeon(sdt);
     updateWildlife(sdt);
+    updateQuests(sdt);
     updateMining(sdt);
     updateAuras(sdt);
     updateTowers(sdt);
@@ -7304,6 +8191,7 @@ function loop(now){
   for (const e of enemies) syncUnit(e, e.moving, t, dt);
   for (const g of aiGuards) syncUnit(g, g.moving, t, dt);
   for (const a of wildlife) syncUnit(a, a.moving, t, dt);
+  for (const e of campEnemies) syncUnit(e, e.moving, t, dt);
   for (const e of dungeonEnemies) syncDngUnit(e, t, dt);
   if (heroAlive() && !dungeon){          // im Dungeon ist die Figur unsichtbar (Ego)
     syncUnit(hero, hero.moving, t, dt);
@@ -7484,5 +8372,43 @@ setTimeout(()=>{
       countPointLights(){ let n = 0; scene.traverse(o=>{ if (o.isPointLight) n++; }); return n; },
       dWalkable, get dngHeroPos(){ return hero ? [hero.x, hero.y] : null },
       setHeroPos(x,y){ if (hero){ hero.x = x; hero.y = y; } },
-      get fog(){ return { near:scene.fog.near, far:scene.fog.far, color:scene.fog.color.getHex() }; } };
+      get fog(){ return { near:scene.fog.near, far:scene.fog.far, color:scene.fog.color.getHex() }; },
+      // Etappe 24d: Quest-System
+      get quests(){ return state.quests; },
+      questsUnlocked, ensureOffers, rollQuestOffer, tafelOk,
+      genQuestOffer(slot){
+        const o = rollQuestOffer('tafel');
+        if (!o) return null;
+        if (slot !== undefined && state.quests.offers[slot]) state.quests.offers[slot] = o;
+        else state.quests.offers.push(o);
+        return o;
+      },
+      rerollOffers(){ state.quests.offers = []; ensureOffers(); return state.quests.offers; },
+      acceptQuest, abandonQuest, declineOffer, trackQuest, questReady,
+      questProgress(id, n){
+        const q = state.quests.active.find(a=>a.id===id || a===id);
+        if (!q) return false;
+        q.have += (n===undefined ? 1 : n);
+        if (q.have >= q.need && q.typ!=='lieferung'){
+          q.have = q.need;
+          if (q.typ==='schuerfen' || q.typ==='umsatz') completeQuest(q, true);
+          else q.phase = 'abgeben';
+        }
+        return true;
+      },
+      completeQuest(id){
+        const q = typeof id==='object' ? id : state.quests.active.find(a=>a.id===id);
+        return q ? completeQuest(q, true) : false;
+      },
+      questNotify, questTargetPos, lieferPayout, openQuestSheet, openCitizenDialog,
+      markCitizen, unmarkCitizen,
+      get citizen(){ return folk.find(f=>f.qmark || f.questId) || null; },
+      get folk(){ return folk; },
+      spawnIntruderCamp, removeCamp,
+      get camp(){ return state.quests ? state.quests.camp : null; },
+      get campEnemies(){ return campEnemies; },
+      get campOrphanT(){ return campOrphanT; },
+      questTick(sec){ updateQuests(sec||1); },
+      setGratitude(v){ state.quests.gratitude = v; },
+      setCitizenTimer(v){ citizenT = v; } };
 }, 40);
