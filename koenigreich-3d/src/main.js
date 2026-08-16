@@ -4076,6 +4076,10 @@ function openHeroTrade(bd){
     ' – jede Transaktion schult den Handel (1 EXP je 25 🪙 Umsatz).';
   $('ipStats').textContent = '🪙 '+fmt(state.res.gold)+' · 🎒 '+bagCount()+'/'+heroCapacity();
   const btns = $('ipBtns'); btns.innerHTML = '';
+  buildMarketTabs(btns, ()=>openHeroTrade(bd));
+  if (marktTab === 'gear'){
+    buildGearShop(btns, ()=>openHeroTrade(bd));
+  } else {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;margin-top:6px';
   for (const k of ['holz','stein','nahrung','erz','eisen']){
@@ -4106,6 +4110,7 @@ function openHeroTrade(bd){
     wrap.appendChild(s); wrap.appendChild(bb);
   }
   btns.appendChild(wrap);
+  }
   if (bagCount() > 0){
     const eb = document.createElement('button');
     eb.className = 'btn-blue';
@@ -4114,6 +4119,125 @@ function openHeroTrade(bd){
     btns.appendChild(eb);
   }
   ui.info.style.display = 'block';
+}
+
+// --- Ausrüstungs-Händler am Markt (Etappe 25a): Kaufen statt Craften ---
+// Bequemer, aber teurer als Schmieden: Ressourcen zum Markt-EINKAUFSWERT (TRADE_VAL·1,5)
+// plus Händler-Aufschlag – der Schmiedekunst-Weg bleibt dadurch immer der günstigere.
+function heroShopMarkup(){
+  const h = state.hero ? state.hero.skills.h : 1;
+  return Math.max(0.15, 0.25 - 0.01*(h-1));    // 25 % Aufschlag, −1 pp je Handels-Stufe
+}
+// Gate wie beim Craften (Rathaus-Stufe, Amulett-Rezepte), aber OHNE Schmiede-Anforderung.
+// null = kaufbar · '✔ …' = schon im Besitz (sichtbar) · '🔒 …' = verborgen (Baumenü-Prinzip)
+function heroShopGate(id){
+  const it = HERO_ITEMS[id];
+  if (!it || !it.cost) return '🔒 nicht handelbar';
+  if (!state.hero) return '🔒 Kein Held rekrutiert';
+  if (it.req && rathausLvl() < it.req &&
+      !(it.slot==='t' && state.hero.rezepte && state.hero.rezepte[id]))
+    return '🔒 Rathaus '+it.req;
+  if (id==='pfanne' && state.hero.pfanne) return '✔ im Besitz';
+  if (it.slot!=='tool' && state.hero.equip[it.slot]===id) return '✔ angelegt';
+  return null;
+}
+function heroShopList(){
+  return CRAFT_ORDER.filter(id=>{ const w = heroShopGate(id); return !w || w[0]==='✔'; });
+}
+function heroShopPrice(id){
+  const it = HERO_ITEMS[id];
+  if (!it || !it.cost) return 0;
+  let v = 0;
+  for (const k in it.cost)
+    v += k==='gold' ? it.cost[k]
+       : it.cost[k]*(TRADE_VAL[k]!==undefined ? TRADE_VAL[k] : (GOLD_VAL[k]||1))*1.5;
+  return Math.max(5, Math.round(v*(1+heroShopMarkup())/5)*5);   // auf 5 🪙 gerundet
+}
+function buyHeroItem(id){
+  const it = HERO_ITEMS[id];
+  if (!it || !it.cost) return false;
+  const why = heroShopGate(id);
+  if (why){ toast('⚔️ '+it.name+': '+why.replace('🔒 ','noch nicht im Angebot – ')); return false; }
+  const p = heroShopPrice(id);
+  if (state.res.gold < p){ toast('Nicht genug Gold für '+it.name+' ('+p+' 🪙).'); return false; }
+  state.res.gold -= p;
+  giveHeroExp('h', p/25);                  // Kauf ist Helden-Handel: 1 EXP je 25 🪙 Umsatz
+  questNotify('umsatz', p);
+  if (id==='pfanne'){
+    state.hero.pfanne = 1;
+    toast('🥄 Goldpfanne gekauft – halte am Ufer nach glitzernden Kiesbänken Ausschau!', 5200);
+  } else {
+    equipHero(it.slot, id);                // sofort angelegt; Alt-Teil geht zum Marktwert in Zahlung
+    toast('⚔️ '+it.name+' gekauft und angelegt! (−'+p+' 🪙)');
+  }
+  snd(700,0.08,'triangle',0.04); snd(920,0.1,'triangle',0.04);
+  save();
+  return true;
+}
+// Zwei Markt-Tabs (Waren | Ausrüstung) – gemerkt, damit ein Re-Render nach Kauf im Tab bleibt
+let marktTab = 'waren';
+function buildMarketTabs(btns, rerender){
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;margin-top:6px';
+  for (const [key,label] of [['waren','🧺 Waren'],['gear','⚔️ Ausrüstung']]){
+    const tb = document.createElement('button');
+    tb.className = 'bmtab'+(marktTab===key ? ' sel' : '');
+    tb.style.cssText = 'flex:1;margin:0;padding:8px 10px';
+    tb.dataset.mtab = key;
+    tb.textContent = label;
+    tb.addEventListener('click', ()=>{ if (marktTab !== key){ marktTab = key; rerender(); } });
+    row.appendChild(tb);
+  }
+  btns.appendChild(row);
+}
+function buildGearShop(btns, rerender){
+  if (!state.hero){
+    const note = document.createElement('div');
+    note.style.cssText = 'font-size:12.5px;color:#9aa7bb;margin-top:8px';
+    note.textContent = '⚔️ Der Händler wartet auf Kundschaft – rekrutiere zuerst einen Helden in der Heldenhalle.';
+    btns.appendChild(note);
+    return;
+  }
+  const wrap = document.createElement('div');
+  // Im Ego lassen die schwebenden Aktions-Knöpfe (🎒/⛏️) rechts sonst keine Tap-Fläche
+  wrap.style.cssText = 'max-height:34vh;overflow-y:auto;margin-top:2px;padding-right:'+
+    (egoMode ? '72px' : '2px');
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:11.5px;color:#9aa7bb;margin-top:4px';
+  note.textContent = 'Sofort kaufen & anlegen – ohne Schmiede, dafür +'+
+    Math.round(heroShopMarkup()*100)+' % Aufschlag (Handels-Geschick senkt ihn). '+
+    'Selber schmieden bleibt günstiger.';
+  wrap.appendChild(note);
+  for (const id of heroShopList()){
+    const it = HERO_ITEMS[id];
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:5px;'+
+      'padding-top:5px;border-top:1px solid rgba(255,255,255,.1)';
+    const lab = document.createElement('div');
+    lab.style.cssText = 'flex:1;font-size:12.5px;color:#cfe0f0';
+    const eff = it.dmg ? '💥 '+it.dmg : (it.hp ? '+'+it.hp+' ❤️' : (it.fx||''));
+    lab.textContent = it.name+' · '+eff;
+    row.appendChild(lab);
+    const why = heroShopGate(id);
+    if (why){
+      const st2 = document.createElement('div');
+      st2.style.cssText = 'font-size:11.5px;color:#9fd8a8;flex-shrink:0';
+      st2.textContent = why;
+      row.appendChild(st2);
+    } else {
+      const p = heroShopPrice(id);
+      const b2 = document.createElement('button');
+      b2.className = 'btn-green';
+      b2.dataset.buy = id;
+      b2.style.cssText = 'margin:0;flex-shrink:0;font-size:12.5px;padding:8px 12px;min-height:44px';
+      b2.textContent = '💰 '+p+' 🪙';
+      if (state.res.gold < p){ b2.disabled = true; b2.style.opacity = '0.45'; }
+      else b2.addEventListener('click', ()=>{ if (buyHeroItem(id)) rerender(); });
+      row.appendChild(b2);
+    }
+    wrap.appendChild(row);
+  }
+  btns.appendChild(wrap);
 }
 
 // --- Beutel-Sheet (🎒-Button im Ego) ---
@@ -7553,8 +7677,12 @@ function showBuildingInfo(bd){
     });
     btns.appendChild(eb);
   }
-  // Handel (am Markt)
+  // Handel (am Markt): Tabs Waren | Ausrüstung (25a)
   if (b.market){
+    buildMarketTabs(btns, ()=>showBuildingInfo(bd));
+    if (marktTab === 'gear'){
+      buildGearShop(btns, ()=>showBuildingInfo(bd));
+    } else {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;margin-top:6px';
     for (const k of ['holz','stein','nahrung','erz','eisen']){
@@ -7582,6 +7710,7 @@ function showBuildingInfo(bd){
       wrap.appendChild(s); wrap.appendChild(bb);
     }
     btns.appendChild(wrap);
+    }
   }
   // Heldenhalle: Rekrutierung (1. Held gratis, Name per 🎲) bzw. Helden-Übersicht
   if (bd.t==='heldenhalle'){
@@ -8568,6 +8697,9 @@ setTimeout(()=>{
       get heroBag(){return state.hero ? state.hero.bag : null},
       bagAdd, bagCount, bagValue, heroCapacity, emptyBag, nearDeliverBuilding,
       heroSellRate, heroBuyRate, heroTradeBonus, openHeroTrade, openCraftSheet, showBagSheet,
+      // Etappe 25a: Ausrüstungs-Händler am Markt
+      buyHeroItem, heroShopPrice, heroShopList, heroShopGate, heroShopMarkup,
+      get marktTab(){return marktTab}, set marktTab(v){marktTab=v},
       heroSail(x,y){ return egoSailTo(x,y); }, openSailPick, get sailPick(){return sailPick},
       egoContext, egoTargetWild, applyHeroEquipVisual, heroArmorHp, heroWeaponDmg,
       get wildlife(){return wildlife},
