@@ -301,6 +301,7 @@ function newState(seed){
     pop:4, buildings:[], chopped:[], regrown:[], terra:[], wave:1, waveTimer:330,
     waveActive:false, soldiersOwned:0, popTick:0, muted:false, doctrine:null, ai:null,
     planets:[], chronicle:[], research:{}, researchJob:null,
+    dungeons:{ cleared:{} },
     seenUnlocks: BUILDABLE.filter(t=>!BT[t].req || BT[t].req<=1) };
 }
 
@@ -2068,6 +2069,7 @@ function canPlace(t,x,y){
   const b = BT[t];
   if (b.terra){
     if (!inMap(x,y)) return false;
+    if (dngPortals.some(p=>Math.abs(x-p.x)<=1 && Math.abs(y-p.y)<=1)) return false;   // Portal schützen
     const k = idx(x,y);
     if (b.terra==='see') return tiles[k]===2 && !occ[k] && !aiOcc[k] && !treeMap[k] && !rockMap[k];
     // Aufschütten: Wasser mit mindestens einem Landnachbarn
@@ -2082,6 +2084,8 @@ function canPlace(t,x,y){
     if (!inMap(px,py)) return false;
     const k = idx(px,py);
     if (tiles[k]!==2 || occ[k] || aiOcc[k] || treeMap[k] || rockMap[k]) return false;
+    // Dungeon-Portale (24c) sind unantastbar – 1 Kachel Abstand
+    if (dngPortals.some(p=>Math.abs(px-p.x)<=1 && Math.abs(py-p.y)<=1)) return false;
     // normale Gebäude nur im Siedlungsgebiet (Expeditionen gründen neue)
     if (!b.vorp && !inSettlement(px,py)) return false;
   }
@@ -2119,6 +2123,7 @@ function applyTerraform(kind, x, y){
   }
   state.buildings.forEach(recalcEff);
   initMineSpots();           // Ufer haben sich geändert: Spots prüfen + Optik neu setzen
+  initDungeonPortals();      // Portale auf neue Geländehöhe/Küstenlinie nachführen
   spawnBurst(wx(x), Math.max(hAt(x,y),0)+0.4, wz(y), 10, kind==='see' ? 0x9fd4ff : 0xc9b28a);
   toast(kind==='see' ? '🌊 See ausgehoben!' : '🌱 Neues Land aufgeschüttet!');
   save();
@@ -3033,6 +3038,19 @@ function recruitHero(){
 }
 function heroDie(){
   if (!state.hero || state.hero.respawn > 0 || !hero) return;
+  // Tod im Dungeon (24c): kein Countdown – Erwachen am Eingang (Oberwelt) mit 30 % HP.
+  // Beute/EXP bleiben (Sofort-Gutschrift), nur der Bossraum resettet.
+  if (dungeon){
+    dungeon.run.rooms[dungeon.run.rooms.length-1].cleared = false;
+    exitEgo();                                             // schließt auch den Dungeon
+    hero.hp = Math.max(1, Math.round(heroMaxHp()*0.30));
+    hero.prevHp = hero.hp; hero.lastHit = -1e9; hero.moving = false;
+    state.hero.hp = hero.hp;
+    toast('💀 '+state.hero.name+' erwacht benommen am Dungeon-Eingang – Beute und Erfahrung bleiben.', 5200);
+    snd(120,0.3,'sawtooth',0.05);
+    save();
+    return;
+  }
   state.hero.respawn = 20;
   if (egoMode) exitEgo();
   if (hero.sail){ fxGroup.remove(hero.sail.boat); disposeGroup(hero.sail.boat); hero.sail = null; }
@@ -3210,12 +3228,14 @@ function updateHeroEgo(dt){
     const vl = Math.hypot(vx,vy)||1; vx/=vl; vy/=vl;
     const stepAll = sp*dt, n = Math.max(1, Math.ceil(stepAll/0.3));
     let movedAny = false;
+    // Im Dungeon gilt das 24×24-Raster (dOcc), sonst walkable-Parität der Einheiten
+    const wk = (x,y)=> dungeon ? dWalkable(x,y) : walkable(x,y,false);
     const tryMove = (dx,dy)=>{
       const l2 = Math.hypot(dx,dy);
       if (l2 < 1e-6) return false;
       // Look-ahead 0,45 wie steer(): Wasser/Mauern blocken, Tore lassen durch
-      if (!walkable(hero.x + dx/l2*0.45, hero.y + dy/l2*0.45, false)) return false;
-      if (!walkable(hero.x + dx, hero.y + dy, false)) return false;
+      if (!wk(hero.x + dx/l2*0.45, hero.y + dy/l2*0.45)) return false;
+      if (!wk(hero.x + dx, hero.y + dy)) return false;
       hero.x += dx; hero.y += dy;
       return true;
     };
@@ -3245,6 +3265,18 @@ function updateHero(dt){
     if (h.respawn <= 0) heroRespawn();
     hero.prevHp = hero.hp;
     h.x = hero.x; h.y = hero.y; h.hp = hero.hp;
+    return;
+  }
+  // Dungeon (24c): Bewegung auf dem Unterwelt-Raster, Save-Position bleibt der Eingang
+  if (dungeon){
+    hero.maxhp = heroMaxHp();
+    if (hero.hp <= 0){ heroDie(); return; }
+    if (hero.hp < hero.maxhp && state.time - hero.lastHit > 5)
+      hero.hp = Math.min(hero.maxhp, hero.hp + 2*dt);
+    updateHeroEgo(dt);
+    hero.prevHp = hero.hp;
+    h.hp = hero.hp;
+    h.x = dungeon.entry[0]; h.y = dungeon.entry[1];        // Reload → Held am Eingang
     return;
   }
   // Failsafe: Kachel unbegehbar geworden (Terraforming/Neubau) → nächste freie Kachel
@@ -3285,6 +3317,10 @@ function egoTargetEnemy(){
     if (Math.abs(da) > 35*Math.PI/180) return;
     bd2 = d; best = e;
   };
+  if (dungeon){                          // Unterwelt: NUR die Dungeon-Liste zählt
+    for (const e of dungeonEnemies) scan(e);
+    return best;
+  }
   for (const e of enemies) if (!e.sail) scan(e);
   for (const g of aiGuards) scan(g);
   return best;
@@ -3293,7 +3329,7 @@ function egoTargetEnemy(){
 function heroAttack(){
   if (!egoMode || !heroAlive() || hero.cd > 0) return false;
   let wild = null, t2 = egoTargetEnemy();
-  if (!t2){ wild = egoTargetWild(); t2 = wild; }
+  if (!t2 && !dungeon){ wild = egoTargetWild(); t2 = wild; }
   if (!t2) return false;
   hero.cd = 0.8;
   const a = Math.atan2(t2.y-hero.y, t2.x-hero.x);
@@ -3302,6 +3338,8 @@ function heroAttack(){
   t2.hp -= heroDmg();
   if (wild){
     wild.aggro = true;                     // Wehr-Arten schlagen zurück, Flucht-Arten fliehen ohnehin
+  } else if (t2.dng){
+    t2.aggro = true;                       // Dungeon: EXP/Beute vergibt killDungeonEnemy
   } else {
     hero.aggroT = 5;
     if (t2.hp <= 0){                       // Kampf-EXP nur für echte Gegner (manuell: voll)
@@ -3310,7 +3348,8 @@ function heroAttack(){
     }
   }
   handSwingT = 0.25;
-  spawnBurst(wx(t2.x), hAt(t2.x,t2.y)+0.5, wz(t2.y), 4, 0xffd27a);
+  if (t2.dng) spawnBurst(dlx(t2.x), DNG_Y+0.5, dlz(t2.y), 4, 0xffd27a);
+  else spawnBurst(wx(t2.x), hAt(t2.x,t2.y)+0.5, wz(t2.y), 4, 0xffd27a);
   snd(190,0.06,'square',0.04);
   return true;
 }
@@ -3374,6 +3413,7 @@ function enterEgo(){
 function exitEgo(){
   if (!egoMode) return false;
   egoMode = false;
+  if (dungeon) exitDungeon();            // Stadtansicht gibt es nur in der Oberwelt
   if (state.hero) state.hero.auto = 1;   // Held macht alleine weiter
   mining = null; sailPick = null;
   hideInfo();                            // offene Ego-Sheets (Beutel/Crafting/Handel) schließen
@@ -3432,9 +3472,10 @@ $('egoExit').addEventListener('click', ()=>exitEgo());
 $('egoAct').addEventListener('click', ()=>egoAction());
 $('egoAct2').addEventListener('click', ()=>showBagSheet());
 $('egoBanner').addEventListener('click', ()=>{
-  // Zur Stadt: Orbit-Kamera zentriert auf den nächsten Angreifer, Held → Auto-Modus
+  // Zur Stadt: Orbit-Kamera zentriert auf den nächsten Angreifer, Held → Auto-Modus.
+  // Im Dungeon zählt die Oberwelt-Position (Eingang) – exitEgo verlässt auch die Unterwelt.
   let best = null, bd2 = 1e9;
-  const hx = hero ? hero.x : SX, hy = hero ? hero.y : SY;
+  const hx = state.hero ? state.hero.x : SX, hy = state.hero ? state.hero.y : SY;
   for (const e of enemies){ if (e.sail) continue;
     const d = dist(e.x,e.y,hx,hy); if (d<bd2){ bd2=d; best=e; } }
   exitEgo();
@@ -3453,6 +3494,13 @@ function egoView(){
     return;
   }
   const bob = hero && hero.moving ? Math.sin(egoBobT)*0.02 : 0;   // Kopf-Bobbing ±0,02
+  if (dungeon){                          // Unterwelt: eigenes Raster bei y=−60, ebener Boden
+    const dx2 = dlx(hero.x), dz2 = dlz(hero.y), dy2 = DNG_Y + 0.62 + bob;
+    _egoCam.position.set(dx2, dy2, dz2);
+    const cp2 = Math.cos(egoPitch);
+    _egoCam.lookAt(dx2 + Math.cos(egoYaw)*cp2, dy2 + Math.sin(egoPitch), dz2 + Math.sin(egoYaw)*cp2);
+    return;
+  }
   const ex = wx(hero.x), ez = wz(hero.y);
   const ey = Math.max(hAt(hero.x,hero.y),0) + 0.62 + bob;         // Augenhöhe
   _egoCam.position.set(ex,ey,ez);
@@ -3757,7 +3805,10 @@ function craftGate(id){
   if (id==='pfanne' && state.hero.pfanne) return '✔ im Besitz';
   if (it.slot!=='tool' && state.hero.equip[it.slot]===id) return '✔ angelegt';
   if (it.skill && state.hero.skills.c < it.skill) return '🔒 Schmiedekunst '+it.skill;
-  if (it.req && rathausLvl() < it.req) return '🔒 Rathaus '+it.req;
+  // Amulette: Dungeon-Rezeptfund (24c) schaltet vor dem Rathaus-Gate frei
+  if (it.req && rathausLvl() < it.req &&
+      !(it.slot==='t' && state.hero.rezepte && state.hero.rezepte[id]))
+    return '🔒 Rathaus '+it.req;
   // Gebäudestufe ≥ Tier·3 (Goldpfanne: jede intakte Schmiede reicht – Tutorial-Craft)
   const need = id==='pfanne' ? 1 : it.tier*3;
   if (bestSmithLvl(it.tier) < need)
@@ -4119,11 +4170,14 @@ function nearestInteractBuilding(types){
   }
   return best;
 }
-// Priorität: Gegner > Wildtier > Schürf-Spot > Schmiede/Markt/Hafen
+// Priorität: Gegner > Dungeon > Wildtier > Schürf-Spot > Schmiede/Markt/Hafen
 function egoContext(){
   if (!heroAlive() || hero.sail) return null;
+  if (dungeon) return dungeonContext();  // Unterwelt hat eigene Ziele (Gegner/Truhe/Hebel/Portal)
   const e = egoTargetEnemy();
   if (e) return { act:'attack', icon:'⚔️', target:e };
+  const dp = egoPortalTarget();
+  if (dp) return { act:'dungeon', icon:'🕳️', target:dp };
   const w = egoTargetWild();
   if (w) return { act:'hunt', icon:'⚔️', target:w };
   if (state.hero.pfanne){
@@ -4144,6 +4198,10 @@ function egoAction(){
   const c = egoContext();
   if (!c) return false;
   if (c.act==='attack' || c.act==='hunt') return heroAttack();
+  if (c.act==='dungeon') return enterDungeon(c.target.isle);
+  if (c.act==='chest') return openDungeonChest();
+  if (c.act==='lever') return pullLever();
+  if (c.act==='dexit') return exitDungeon();
   if (c.act==='mine'){
     if (mining){ mining = null; toast('⛏️ Schürfen abgebrochen.'); return true; }
     mining = { spot:c.target, t:0, dur:mineDur(false), auto:false };
@@ -4358,7 +4416,7 @@ function updateWildlife(dt){
     a.cd = Math.max(0, a.cd - bdt);
     // Wehr-Art: greift NUR ihren Angreifer (den Helden) an; Leine 8 Kacheln → Rückzug + Heilung
     if (a.aggro && !W.flee){
-      if (!heroAlive() || hero.sail || dist(a.x,a.y,a.sx,a.sy) > 8){
+      if (!heroAlive() || hero.sail || dungeon || dist(a.x,a.y,a.sx,a.sy) > 8){
         a.aggro = false; a.ret = 1;
       } else {
         const d = dist(a.x,a.y,hero.x,hero.y);
@@ -4386,7 +4444,7 @@ function updateWildlife(dt){
     if (W.flee){
       // Flucht: Held oder Einheit < 4 Kacheln → 8 s vom Bedroher weg
       let th = null;
-      if (heroAlive() && !hero.sail && dist(a.x,a.y,hero.x,hero.y) < 4) th = hero;
+      if (heroAlive() && !hero.sail && !dungeon && dist(a.x,a.y,hero.x,hero.y) < 4) th = hero;
       if (!th) for (const s2 of soldiers)
         if (!s2.sail && dist(a.x,a.y,s2.x,s2.y) < 4){ th = s2; break; }
       if (th){ a.fleeT = 8; a.fa = Math.atan2(a.y-th.y, a.x-th.x); }
@@ -4412,6 +4470,687 @@ function updateWildlife(dt){
   // Erlegte Tiere: Beute gutschreiben (nur der Held jagt)
   for (let i=wildlife.length-1;i>=0;i--)
     if (wildlife[i].hp <= 0) killWild(wildlife[i]);
+}
+
+// ============================== DUNGEONS (Etappe 24c) ==============================
+// Unterwelt in derselben Szene bei y=−60: eigenes 24×24-Raster (dOcc), dichter Fog,
+// max. 2 mitwandernde PointLights. Ein Raum ist zugleich aktiv; Türen wechseln Räume.
+// Der Run wird NICHT gespeichert – nur state.dungeons.cleared (Abschlusszähler je Insel).
+const DNG_Y = -60;
+const DNG_TIER_OF_BIOME = { wiese:1, wald:1, schnee:2, wueste:3, vulkan:4 };
+const DNG_LOOK = [null, 'Wurzelhöhle', 'Eisgrotte', 'Grabkammer', 'Lavastollen'];
+const DNG_FOG_COL = [null, 0x0b0806, 0x0a141c, 0x141006, 0x180806];
+const DNG_LIGHT_COL = [null, 0xffb469, 0x9fd4ff, 0xffd28a, 0xff8a4a];
+const DNG_TRASH = [null,
+  { name:'Grottenräuber', hp:60,  dmg:8  },
+  { name:'Eisgeist',      hp:110, dmg:14 },
+  { name:'Grabwächter',   hp:190, dmg:22 },
+  { name:'Lavaschrecken', hp:300, dmg:34 }];
+const DNG_BOSS = [null,
+  { name:'Räuberhauptmann', hp:260,  dmg:16, gimmick:'adds' },
+  { name:'Frostalter',      hp:520,  dmg:24, gimmick:'felder' },
+  { name:'Skarabäus-Koloss',hp:950,  dmg:36, gimmick:'ansturm' },
+  { name:'Magmafürst',      hp:1600, dmg:52, gimmick:'puls' }];
+const DNG_COUNT = [null, [6,9], [7,10], [8,11], [8,12]];        // Trash je Run (Tabelle 7.3)
+const DNG_MAT = [null, {eisen:5}, {eisen:8}, {stahl:8}, {stahl:10,lithium:2}];
+// Geteilte Dungeon-Materialien je Tier (Umfärbung der enemy-Figur + Raum-Look)
+const DM = {
+  wall:  [null, std(0x4a3323), std(0x7fa8c2), std(0x8a744e), std(0x35262b)],
+  floor: [null, std(0x5d4530), std(0xa8c8da), std(0xa08a5c), std(0x40292a)],
+  glow:  [null, std(0x7ec86a,{emissive:0x4fae40,emissiveIntensity:1.2}),
+                std(0x9fe4ff,{emissive:0x58b8e8,emissiveIntensity:1.3}),
+                std(0xffd75a,{emissive:0xdfa520,emissiveIntensity:1.1}),
+                std(0xff6a2a,{emissive:0xff4a10,emissiveIntensity:1.6})],
+  body:  [null, std(0x55603a), std(0x7fa8c8), std(0x8a7a52), std(0x5a3230)],
+  dark:  [null, std(0x3a4028), std(0x54788f), std(0x615536), std(0x3a2020)],
+  gate: std(0x77828c), chest: std(0x6b482a), chestLid: std(0x8a5c34),
+  tele: new THREE.MeshBasicMaterial({ color:0xff3b30, transparent:true, opacity:0.4,
+    side:THREE.DoubleSide, depthWrite:false }),
+};
+for (const k of ['wall','floor','glow','body','dark'])
+  for (const m of DM[k]) if (m) m.userData.shared = true;
+DM.gate.userData.shared = true; DM.chest.userData.shared = true;
+DM.chestLid.userData.shared = true; DM.tele.userData.shared = true;
+const dngCircleGeo = new THREE.CircleGeometry(1, 24);           // Telegraph (geteilt!)
+dngCircleGeo.userData.shared = true;
+// 5 handgemachte Raum-Templates: 24×24. # Wand · . Boden · T Fackel · D Deko ·
+// E Gegner-Spawn · C Truhe · L Hebel · G Gitter · B Boss. Türen: Spalten 11/12.
+const DNG_TPL = {
+  kampf: [
+    '###########..###########','###########..###########','####...T........T...####',
+    '###..................###','##.....E........E.....##','##....................##',
+    '##.......######.......##','##..D....######....D..##','##.......######.......##',
+    '##....................##','##..E..............E..##','##....................##',
+    '##....................##','##.......######.......##','##..T....######....T..##',
+    '##.......######.......##','##....................##','##.....E........E.....##',
+    '###..................###','####................####','#####..............#####',
+    '######....T..T....######','###########..###########','###########..###########'],
+  kampf2: [
+    '###########..###########','###########..###########','######............######',
+    '###....T........T....###','###..................###','###..##..........##..###',
+    '###..##....E.....##..###','###..................###','###.......##.........###',
+    '###..E....##.....E...###','###.......##.........###','###..................###',
+    '###..................###','###.......##.........###','###..D....##....D....###',
+    '###.......##.........###','###..................###','###..##....E.....##..###',
+    '###..##..........##..###','###..................###','###....T........T....###',
+    '######............######','###########..###########','###########..###########'],
+  schatz: [
+    '###########..###########','###########..###########','#####..............#####',
+    '####..T........T....####','####................####','####..####....####..####',
+    '####..####.C..####..####','####..####....####..####','####....E...........####',
+    '####................####','#####..............#####','######............######',
+    '######....D..D....######','######............######','#####..............#####',
+    '####................####','####..T........T....####','####................####',
+    '####................####','#####..............#####','######............######',
+    '#######..........#######','###########..###########','###########..###########'],
+  hebel: [
+    '###########..###########','###########..###########','##########GGGG##########',
+    '#####..............#####','####....T......T....####','####................####',
+    '####..E..........E..####','####................####','####......####......####',
+    '####......####......####','#####..............#####','########........########',
+    '########...D....########','########........########','#####..............#####',
+    '####.....T....T.....####','####................####','##...L..............####',
+    '##..................####','####................####','#####..............#####',
+    '######............######','###########..###########','###########..###########'],
+  boss: [
+    '########################','########################','####..T..........T..####',
+    '###..................###','##.........B..........##','##....................##',
+    '##..D..............D..##','##....................##','##....................##',
+    '##....................##','##T..................T##','##....................##',
+    '##....................##','##....................##','##....................##',
+    '##..D..............D..##','##....................##','###..................###',
+    '####................####','#####..............#####','######....T..T....######',
+    '########........########','###########..###########','###########..###########'],
+};
+// --- Laufzeitzustand ---
+const dngGroup = new THREE.Group(); dngGroup.position.y = DNG_Y; scene.add(dngGroup);
+let dungeon = null;                      // { isle, tier, run, room, roomGrp, dOcc, entry, … }
+let dungeonEnemies = [];                 // NUR Dungeon-Gegner – kein Kontakt zu Wellen/KI
+let dngTele = [];                        // Boss-Telegraphen (roter Bodenkreis, 1 s Vorlauf)
+let dngLights = [];                      // die beiden mitwandernden PointLights
+const dungeonRuns = {};                  // offener Run je Insel (Laufzeit-Cache, unsaved)
+let dngPortals = [];                     // Oberwelt-Eingänge [{isle,x,y,tier}]
+const portalGroup = new THREE.Group(); scene.add(portalGroup);
+const dlx = (x)=>(x-11.5)*TL, dlz = (y)=>(y-11.5)*TL;    // Dungeon-Kachel → Weltkoord. (x/z)
+const dngRoom = ()=> dungeon ? dungeon.run.rooms[dungeon.room] : null;
+// Begehbarkeit im Dungeon-Raster (Gitter zählt als Wand, solange geschlossen)
+function dWalkable(fx,fy){
+  if (!dungeon) return false;
+  const x = Math.round(fx), y = Math.round(fy);
+  if (x<0 || y<0 || x>23 || y>23) return false;
+  return dungeon.dOcc[y*24+x] === 0;
+}
+function dSteer(u, tx, ty, sp, dt){      // steer()-Prinzip auf dem Dungeon-Raster
+  const dx = tx-u.x, dy = ty-u.y, d = Math.hypot(dx,dy);
+  if (d < 0.05) return true;
+  const base = Math.atan2(dy,dx);
+  for (const off of [0, 0.55, -0.55, 1.1, -1.1, 1.7, -1.7]){
+    const a = base+off;
+    const nx = u.x + Math.cos(a)*sp*dt, ny = u.y + Math.sin(a)*sp*dt;
+    if (dWalkable(u.x + Math.cos(a)*0.45, u.y + Math.sin(a)*0.45) && dWalkable(nx,ny)){
+      u.x = nx; u.y = ny; u.dir = a; return false;
+    }
+  }
+  return false;
+}
+// --- Oberwelt-Portale: 1 je Insel, seed-deterministisch ---
+function findDungeonTile(isleIdx){
+  const I = ISLES[isleIdx];
+  if (!I) return null;
+  const rng = mulberry32((state.seed ^ 0x7e11a5) + isleIdx*524287);
+  for (let tries=0;tries<500;tries++){
+    const a = rng()*Math.PI*2, r = rng()*I.r*0.8;
+    const x = Math.round(I.x + Math.cos(a)*r), y = Math.round(I.y + Math.sin(a)*r);
+    if (!inMap(x,y) || tiles[idx(x,y)]!==2) continue;
+    const k = idx(x,y);
+    if (occ[k] || aiOcc[k] || treeMap[k] || rockMap[k]) continue;
+    if (isleParent[isleId[k]] !== isleIdx) continue;
+    if (dist(x,y,SX,SY) < 8) continue;                     // nicht mitten im Startgebiet
+    if (!walkable(x,y,false) || !findLanding(x,y+1)) continue;
+    if ((state.mineSpots||[]).some(s=>dist(s.x,s.y,x,y) < 2)) continue;
+    return [x,y];
+  }
+  return null;
+}
+function makeDungeonPortal(tier){
+  const g = new THREE.Group();
+  const rng = mulberry32(tier*7919);
+  for (let i=0;i<5;i++){                                   // Felsbogen
+    const m = mesh(new THREE.IcosahedronGeometry(0.34+rng()*0.22,0), DM.wall[tier], false, true);
+    const a = Math.PI*(0.15 + 0.7*i/4);
+    m.position.set(Math.cos(a)*0.85, 0.15+Math.sin(a)*0.9, 0);
+    m.scale.y = 0.8+rng()*0.5;
+    g.add(m);
+  }
+  const hole = mesh(new THREE.PlaneGeometry(1.0,1.1), std(0x0a0810), false, false);
+  hole.position.set(0, 0.62, 0.02); g.add(hole);           // dunkler Eingang
+  for (const sx of [-1,1]){                                // 2 Fackeln
+    g.add(cyl(0.035,0.045,0.6, M.woodDark, sx*0.95, 0, 0.25, 5));
+    const f = bx(0.11,0.15,0.11, M.fire, sx*0.95, 0.58, 0.25);
+    f.castShadow = false; g.add(f);
+  }
+  const gl = mesh(new THREE.IcosahedronGeometry(0.09,0), DM.glow[tier], false, false);
+  gl.position.set(0, 1.28, 0.1); g.add(gl);                // Tier-Kristall am Scheitel
+  g.traverse(o=>{ if (o.isMesh) o.castShadow = false; });
+  return g;
+}
+function initDungeonPortals(){
+  if (!state || !ISLES) return;
+  disposeGroup(portalGroup);
+  dngPortals = [];
+  for (let i=0;i<ISLES.length;i++){
+    const t2 = findDungeonTile(i);
+    if (!t2) continue;
+    const tier = DNG_TIER_OF_BIOME[ISLES[i].biome] || 1;
+    dngPortals.push({ isle:i, x:t2[0], y:t2[1], tier });
+    const g = makeDungeonPortal(tier);
+    g.position.set(wx(t2[0]), Math.max(hAt(t2[0],t2[1]),0.02), wz(t2[1]));
+    g.rotation.y = Math.atan2(SX-t2[0], SY-t2[1]);         // Eingang grob Richtung Start
+    portalGroup.add(g);
+  }
+}
+// --- Run-Aufbau: Seed = Kartenseed ⊕ DungeonId ⊕ Abschlusszähler ---
+function dungeonSeed(isle, ctr){ return (state.seed ^ Math.imul(isle+1,0x9e3779b9) ^ Math.imul(ctr+1,0x85ebca6b))|0; }
+function rollDungeonRooms(isle, ctr){
+  const rng = mulberry32(dungeonSeed(isle, ctr));
+  const n = 3 + Math.floor(rng()*3);                       // 3–5 Räume
+  const mids = ['schatz'];                                 // 1–2 Truhen je Run garantiert
+  const pool = ['hebel','kampf2','kampf','schatz'];
+  while (mids.length < n-2){
+    let pick = pool[Math.floor(rng()*pool.length)];
+    if (pick==='schatz' && mids.filter(m=>m==='schatz').length >= 2) pick = 'kampf2';
+    mids.push(pick);
+  }
+  for (let i=mids.length-1;i>0;i--){                       // deterministisch mischen
+    const j = Math.floor(rng()*(i+1)); const t2 = mids[i]; mids[i] = mids[j]; mids[j] = t2;
+  }
+  return ['kampf', ...mids, 'boss'];                       // Bossraum immer zuletzt
+}
+function buildRun(isle, ctr){
+  const p = dngPortals.find(q=>q.isle===isle);
+  const tier = p ? p.tier : 1;
+  const rng = mulberry32(dungeonSeed(isle, ctr) ^ 0x2c9f);
+  const rooms = rollDungeonRooms(isle, ctr).map(tp=>({ tpl:tp, cleared:false, open:false, chestOpen:false, nE:0 }));
+  // Trash-Gesamtzahl je Tier-Range auf die Räume verteilen (Tabelle 7.3)
+  const [lo,hi] = DNG_COUNT[tier];
+  let total = lo + Math.floor(rng()*(hi-lo+1));
+  for (const r of rooms){
+    if (r.tpl==='schatz'){ r.nE = 1; total -= 1; }         // Truhe + 1 Wache
+    if (r.tpl==='hebel'){ r.nE = 2; total -= 2; }
+  }
+  const fights = rooms.filter(r=>r.tpl==='kampf' || r.tpl==='kampf2');
+  for (const r of fights) r.nE = clamp(Math.round(total/fights.length), 2, 5);
+  return { isle, ctr, tier, seed:dungeonSeed(isle,ctr), rooms };
+}
+// --- Gegner: makePerson('enemy') + Tier-Umfärbung + 1 Silhouetten-Variante je Tier ---
+function makeDungeonEnemy(tier, boss){
+  const g = makePerson('enemy');
+  fxGroup.remove(g);                                       // wandert in die Raum-Gruppe
+  g.traverse(o=>{
+    if (!o.isMesh) return;
+    o.castShadow = false; o.receiveShadow = false;         // Sonnen-Schatten im Dungeon aus
+    if (o.material === M.enemyBody) o.material = DM.body[tier];
+    else if (o.material === PM.hoodDark) o.material = DM.dark[tier];
+    else if (o.material === PM.pantsDark) o.material = DM.dark[tier];
+    else if (SKIN_MATS.includes(o.material) && (tier===2 || tier===4))
+      o.material = DM.body[tier];                          // Eisgeist/Lavaschrecken: kein Hautton
+  });
+  if (tier===1){                                           // Wurzelhörner
+    for (const sx of [-1,1]){
+      const h = bx(0.035,0.16,0.035, M.woodDark, sx*0.07, 0.7, -0.02);
+      h.rotation.z = -sx*0.5; h.castShadow = false; g.add(h);
+    }
+  } else if (tier===2){                                    // Eiszacken auf den Schultern
+    for (const sx of [-1,1]){
+      const s = mesh(new THREE.ConeGeometry(0.05,0.17,5), DM.glow[2], false, false);
+      s.position.set(sx*0.16, 0.6, 0); s.rotation.z = -sx*0.4; g.add(s);
+    }
+  } else if (tier===3){                                    // Pharaonen-Kopfschmuck
+    const h = bx(0.26,0.07,0.2, M.gold, 0, 0.72, 0); h.castShadow = false; g.add(h);
+  } else {                                                 // glühender Rückenkamm
+    const r = bx(0.05,0.3,0.04, M.fire, 0, 0.35, -0.13); r.castShadow = false; g.add(r);
+  }
+  if (boss){
+    g.scale.setScalar(1.3 + tier*0.06);
+    const c = cyl(0.09,0.11,0.09, M.gold, 0, 0.755, 0, 6); c.castShadow = false; g.add(c);
+  }
+  return g;
+}
+function spawnDungeonEnemy(x, y, tier, boss){
+  const B = boss ? DNG_BOSS[tier] : DNG_TRASH[tier];
+  const e = { x, y, sx:x, sy:y, hp:B.hp, maxhp:B.hp, dmg:B.dmg, cd:0, gt:3,
+    ph:Math.random()*7, dir:Math.PI/2, moving:false, speed: boss?1.1:1.5,
+    dng:true, boss:!!boss, tier, aggro:false, mesh: makeDungeonEnemy(tier, boss) };
+  dungeon.roomGrp.add(e.mesh);
+  dungeonEnemies.push(e);
+  return e;
+}
+// Position/Gang der Dungeon-Einheiten (lokal zur Gruppe bei y=−60)
+function syncDngUnit(u, t, dt){
+  const g = u.mesh;
+  u.wb = u.wb===undefined ? 0 : u.wb + ((u.moving?1:0)-u.wb)*Math.min(1, dt*6);
+  const freq = 4.2 + (u.speed||1.1)*3.4;
+  const alt = Math.abs(Math.sin(t*freq+u.ph))*0.045*u.wb + (1-u.wb)*(0.011+Math.sin(t*1.7+u.ph)*0.011);
+  g.position.set(dlx(u.x), alt, dlz(u.y));
+  if (u.vdir===undefined) u.vdir = u.dir||0;
+  const dd = (u.dir||0) - u.vdir;
+  u.vdir += Math.atan2(Math.sin(dd), Math.cos(dd)) * Math.min(1, dt*10);
+  g.rotation.y = -u.vdir + Math.PI/2;
+  g.rotation.x = u.wb*0.085;
+  const lb = g.userData.limbs;
+  if (lb){
+    const swing = Math.sin(t*freq + u.ph), idle = (1-u.wb)*Math.sin(t*1.7+u.ph)*0.045;
+    lb.armL.rotation.x =  swing*0.62*u.wb + idle;
+    lb.armR.rotation.x = -swing*0.62*u.wb + idle;
+    lb.legL.rotation.x = -swing*0.55*u.wb;
+    lb.legR.rotation.x =  swing*0.55*u.wb;
+  }
+  const [bg,fg] = g.userData.hp;
+  if (u.hp < u.maxhp){ bg.visible = fg.visible = true; fg.scale.x = 0.48*clamp(u.hp/u.maxhp,0,1); }
+  else bg.visible = fg.visible = false;
+}
+// --- Raum aufbauen (alter Raum wird komplett disposed – Etappe-16-Lehre) ---
+function loadRoom(i, from){
+  const d = dungeon, r = d.run.rooms[i];
+  if (d.roomGrp){ dngGroup.remove(d.roomGrp); disposeGroup(d.roomGrp); }
+  dungeonEnemies = []; dngTele = [];
+  d.room = i;
+  const grp = new THREE.Group(); d.roomGrp = grp; dngGroup.add(grp);
+  const tier = d.tier, tpl = DNG_TPL[r.tpl];
+  d.dOcc = new Uint8Array(24*24);
+  d.pts = { E:[], chest:null, lever:null, B:null };
+  const walls = [];
+  for (let y=0;y<24;y++) for (let x=0;x<24;x++){
+    const c = tpl[y][x];
+    if (c==='#'){ d.dOcc[y*24+x] = 1; walls.push([x,y]); continue; }
+    if (c==='G'){ if (!r.open) d.dOcc[y*24+x] = 2; continue; }
+    if (c==='E') d.pts.E.push([x,y]);
+    else if (c==='C') d.pts.chest = [x,y];
+    else if (c==='L') d.pts.lever = [x,y];
+    else if (c==='B') d.pts.B = [x,y];
+  }
+  // Boden + Decke (je 1 Mesh), Wände als EINE gemergte Geometrie (Draw-Call-Budget)
+  const floor = mesh(new THREE.BoxGeometry(24*TL, 0.1, 24*TL), DM.floor[tier], false, false);
+  floor.position.y = -0.05; grp.add(floor);
+  const ceil = mesh(new THREE.BoxGeometry(24*TL, 0.1, 24*TL), DM.wall[tier], false, false);
+  ceil.position.y = 3.0; grp.add(ceil);
+  const wallGeos = walls.map(([x,y])=>
+    new THREE.BoxGeometry(TL, 3.0, TL).translate(dlx(x), 1.5, dlz(y)));
+  if (wallGeos.length){
+    const wm = mesh(mergeGeometries(wallGeos), DM.wall[tier], false, false);
+    grp.add(wm);
+    for (const gg of wallGeos) gg.dispose();               // Quellen sofort freigeben
+  }
+  // Requisiten: Fackeln (Emissive – KEINE Lichter) und Tier-Deko
+  for (let y=0;y<24;y++) for (let x=0;x<24;x++){
+    const c = tpl[y][x];
+    if (c==='T'){
+      const p = cyl(0.04,0.05,0.75, M.woodDark, dlx(x), 0, dlz(y), 5);
+      p.castShadow = false; p.receiveShadow = false; grp.add(p);
+      const f = bx(0.13,0.17,0.13, M.fire, dlx(x), 0.72, dlz(y));
+      f.castShadow = false; f.receiveShadow = false; grp.add(f);
+    } else if (c==='D'){
+      let m2;
+      if (tier===1) m2 = cyl(0.14,0.24,1.4, M.trunk, dlx(x), 0, dlz(y), 6);           // Wurzelsäule
+      else if (tier===2){ m2 = mesh(new THREE.ConeGeometry(0.3,1.3,6), DM.glow[2], false, false);
+        m2.position.set(dlx(x), 0.65, dlz(y)); }                                       // Eiskristall
+      else if (tier===3) m2 = bx(0.5,1.2,0.5, DM.floor[3], dlx(x), 0, dlz(y));         // Sarkophag
+      else { m2 = mesh(new THREE.IcosahedronGeometry(0.4,0), DM.glow[4], false, false);
+        m2.position.set(dlx(x), 0.25, dlz(y)); }                                       // Lavabrocken
+      m2.castShadow = false; m2.receiveShadow = false; grp.add(m2);
+    }
+  }
+  // Truhe / Hebel / Gitter / Ausgangs-Portal
+  if (d.pts.chest){
+    const [cx2,cy2] = d.pts.chest;
+    const ch = new THREE.Group();
+    ch.add(bx(0.62,0.34,0.44, DM.chest, 0, 0, 0));
+    const lid = bx(0.62,0.16,0.44, DM.chestLid, 0, 0.34, 0);
+    lid.name = 'lid'; ch.add(lid);
+    ch.add(bx(0.66,0.07,0.1, M.gold, 0, 0.2, 0.18));
+    if (r.chestOpen) lid.rotation.x = -1.1;
+    ch.position.set(dlx(cx2), 0, dlz(cy2));
+    ch.traverse(o=>{ if (o.isMesh){ o.castShadow = false; o.receiveShadow = false; } });
+    ch.name = 'chest'; grp.add(ch);
+  }
+  if (d.pts.lever){
+    const [lx2,ly2] = d.pts.lever;
+    const lv = new THREE.Group();
+    lv.add(bx(0.3,0.25,0.3, M.stoneDark, 0, 0, 0));
+    const st2 = cyl(0.03,0.03,0.5, M.steel, 0, 0.2, 0, 5);
+    st2.name = 'stick'; st2.rotation.z = r.open ? -0.7 : 0.7; lv.add(st2);
+    lv.position.set(dlx(lx2), 0, dlz(ly2));
+    lv.traverse(o=>{ if (o.isMesh){ o.castShadow = false; o.receiveShadow = false; } });
+    lv.name = 'lever'; grp.add(lv);
+  }
+  if (r.tpl==='hebel' && !r.open){
+    const bars = new THREE.Group(); bars.name = 'gate';
+    for (let x=0;x<24;x++) for (let y=0;y<24;y++)
+      if (tpl[y][x]==='G')
+        for (let b2=0;b2<3;b2++){
+          const bar = cyl(0.045,0.045,2.6, DM.gate, dlx(x)+(b2-1)*0.6, 0, dlz(y), 5);
+          bar.castShadow = false; bar.receiveShadow = false; bars.add(bar);
+        }
+    grp.add(bars);
+  }
+  if (i===0){                                              // Ausgangs-Portal im Startraum
+    const po = new THREE.Group(); po.name = 'exitPortal';
+    po.add(bx(0.3,2.2,0.3, DM.wall[tier], -0.9, 0, 0));
+    po.add(bx(0.3,2.2,0.3, DM.wall[tier],  0.9, 0, 0));
+    po.add(bx(2.1,0.3,0.3, DM.wall[tier], 0, 2.2, 0));
+    const sw = mesh(new THREE.PlaneGeometry(1.5,2.0), DM.glow[tier], false, false);
+    sw.position.y = 1.0; po.add(sw);
+    po.position.set(dlx(11.5), 0, dlz(22.6));
+    po.traverse(o=>{ if (o.isMesh){ o.castShadow = false; o.receiveShadow = false; } });
+    grp.add(po);
+  }
+  // Gegner (nur wenn der Raum in diesem Run noch nicht geleert wurde)
+  if (!r.cleared){
+    if (r.tpl==='boss' && d.pts.B){
+      spawnDungeonEnemy(d.pts.B[0], d.pts.B[1], tier, true);
+    } else if (r.nE > 0){
+      const rng = mulberry32(d.run.seed ^ Math.imul(i+1, 0x45d9f3b));
+      const spots = d.pts.E.slice();
+      for (let k2=spots.length-1;k2>0;k2--){ const j = Math.floor(rng()*(k2+1));
+        const t2 = spots[k2]; spots[k2] = spots[j]; spots[j] = t2; }
+      for (const [ex2,ey2] of spots.slice(0, Math.min(r.nE, spots.length)))
+        spawnDungeonEnemy(ex2, ey2, tier, false);
+    }
+  }
+  r.spawnedN = dungeonEnemies.length;
+  // Held an der passenden Tür platzieren
+  if (from==='top'){ hero.x = 11.5; hero.y = 2.6; egoYaw = Math.PI/2; }
+  else if (from==='enter'){ hero.x = 11.5; hero.y = 20.6; egoYaw = -Math.PI/2; }
+  else { hero.x = 11.5; hero.y = 21.4; egoYaw = -Math.PI/2; }
+  hero.moving = false; egoPitch = 0;
+}
+// --- Blende (0,2 s zu Schwarz, 0,2 s auf – rein kosmetisch, blockiert nichts) ---
+function dngFadeFx(){
+  const el = $('dngFade');
+  el.style.opacity = '1';
+  setTimeout(()=>{ el.style.opacity = '0'; }, 200);
+}
+// --- Betreten / Verlassen ---
+function enterDungeon(isleIdx){
+  if (dungeon || !state || !gameStarted || gameOver) return false;
+  const p = dngPortals.find(q=>q.isle===isleIdx);
+  if (!p) return false;
+  if (!state.buildings.some(b=>b.t==='heldenhalle')){
+    toast('🕳️ Nur Helden wagen den Abstieg – errichte zuerst eine Heldenhalle!');
+    return false;
+  }
+  if (!heroAlive() || hero.sail) return false;
+  if (state.ai && !state.ai.defeated &&
+      (isleParent[isleOf(state.ai.x, state.ai.y)]||0) === isleIdx){
+    toast('🛡️ Ragnars Wachen versperren diesen Abstieg – besiege erst den Fürsten!');
+    return false;
+  }
+  if (!egoMode && !enterEgo()) return false;
+  mining = null; sailPick = null; hideInfo();
+  if (!state.dungeons) state.dungeons = { cleared:{} };
+  const ctr = state.dungeons.cleared[isleIdx] || 0;
+  let run = dungeonRuns[isleIdx];
+  if (!run || run.ctr !== ctr){ run = buildRun(isleIdx, ctr); dungeonRuns[isleIdx] = run; }
+  else run.rooms[run.rooms.length-1].cleared = false;      // nur der Bossraum resettet
+  const entry = findLanding(p.x, p.y+1);
+  dungeon = { isle:isleIdx, tier:p.tier, run, room:0, roomGrp:null, dOcc:null,
+    entry, fogNear:scene.fog.near, fogFar:scene.fog.far };
+  // Licht-Budget: genau 2 PointLights, wandern mit dem Helden mit (Rest: Emissive)
+  const l1 = new THREE.PointLight(0xffb469, 2.4, 12, 1.4);
+  const l2 = new THREE.PointLight(DNG_LIGHT_COL[p.tier], 1.4, 9, 1.4);
+  dngLights = [l1,l2];
+  dngGroup.add(l1); dngGroup.add(l2);
+  scene.fog.near = 2; scene.fog.far = 18;                  // dichter Unterwelt-Fog
+  loadRoom(0, 'enter');
+  state.hero.x = entry[0]; state.hero.y = entry[1];        // Save zeigt immer den Eingang
+  dngFadeFx();
+  toast('🕳️ '+DNG_LOOK[p.tier]+' (Tier '+p.tier+') – der Boss wartet in der Tiefe!', 4200);
+  snd(160,0.25,'triangle',0.05);
+  save();
+  return true;
+}
+function exitDungeon(){
+  if (!dungeon) return false;
+  const d = dungeon; dungeon = null;
+  disposeGroup(dngGroup);                 // Räume, Gegner, Lichter, Telegraphen – alles weg
+  dungeonEnemies = []; dngTele = []; dngLights = [];
+  scene.fog.near = d.fogNear; scene.fog.far = d.fogFar;    // Oberwelt-Fog EXAKT zurück
+  if (hero){
+    const l = findLanding(d.entry[0], d.entry[1]);
+    hero.x = l[0]; hero.y = l[1];
+    hero.moving = false; hero.patrol = null;
+    if (state.hero){ state.hero.x = hero.x; state.hero.y = hero.y; }
+  }
+  dngFadeFx();
+  return true;
+}
+// --- Interaktionen im Dungeon (Kontext des Primär-Buttons) ---
+function dngNear(pt, r){ return pt && hero && dist(hero.x,hero.y,pt[0],pt[1]) <= r; }
+function dungeonContext(){
+  const e = egoTargetEnemy();                              // scannt im Dungeon die Dungeon-Liste
+  if (e) return { act:'attack', icon:'⚔️', target:e };
+  const r = dngRoom();
+  if (r && r.tpl==='schatz' && !r.chestOpen && dngNear(dungeon.pts.chest, 2.0))
+    return { act:'chest', icon:'🧰', target:dungeon.pts.chest };
+  if (r && r.tpl==='hebel' && !r.open && dngNear(dungeon.pts.lever, 2.0))
+    return { act:'lever', icon:'⚙️', target:dungeon.pts.lever };
+  if (dungeon.room===0 && dngNear([11.5,22.6], 2.5))
+    return { act:'dexit', icon:'🚪', target:null };
+  return null;
+}
+function pullLever(){
+  const r = dngRoom();
+  if (!r || r.tpl!=='hebel' || r.open) return false;
+  r.open = true;
+  const tpl = DNG_TPL.hebel;
+  for (let y=0;y<24;y++) for (let x=0;x<24;x++)
+    if (tpl[y][x]==='G') dungeon.dOcc[y*24+x] = 0;
+  const bars = dungeon.roomGrp.getObjectByName('gate');
+  if (bars){ dungeon.roomGrp.remove(bars); disposeGroup(bars); }
+  const lv = dungeon.roomGrp.getObjectByName('lever');
+  const st2 = lv && lv.getObjectByName('stick');
+  if (st2) st2.rotation.z = -0.7;
+  toast('⚙️ Der Hebel knirscht – das Gitter hebt sich!', 3000);
+  snd(140,0.2,'square',0.05); snd(320,0.15,'triangle',0.04);
+  return true;
+}
+// Ausrüstungs-Drop: bessere Teile werden angelegt, schlechtere zum Marktwert verkauft
+function grantEquipDrop(tier){
+  tier = clamp(tier, 1, 4);
+  const ids = Object.keys(HERO_ITEMS).filter(id=>{
+    const it = HERO_ITEMS[id];
+    return (it.slot==='w' || it.slot==='a') && it.tier === tier;
+  });
+  if (!ids.length) return null;
+  const id = ids[(Math.random()*ids.length)|0];
+  const it = HERO_ITEMS[id];
+  const cur = state.hero.equip[it.slot];
+  if (cur && HERO_ITEMS[cur] && HERO_ITEMS[cur].tier >= it.tier){
+    const v = Math.max(1, itemValue(id));
+    state.res.gold += v;
+    toast('🎁 '+it.name+' gefunden – bereits besser ausgerüstet, verkauft für +'+v+' 🪙', 3600);
+  } else {
+    equipHero(it.slot, id);
+    toast('🎁 Beute: '+it.name+' angelegt!', 3600);
+  }
+  return id;
+}
+function openDungeonChest(){
+  const r = dngRoom();
+  if (!r || r.tpl!=='schatz' || r.chestOpen) return false;
+  r.chestOpen = true;
+  const tier = dungeon.tier;
+  const ch = dungeon.roomGrp.getObjectByName('chest');
+  const lid = ch && ch.getObjectByName('lid');
+  if (lid) lid.rotation.x = -1.1;
+  addLoot({ gold: 20*tier });                              // Sofort-Gutschrift (Tabelle 7.5)
+  const roll = Math.random();
+  if (roll < 0.60){                                        // 60 % Material-Paket
+    addLoot(scaleCost(DNG_MAT[tier], 3));
+  } else if (roll < 0.85){                                 // 25 % Ausrüstung Tier-passend
+    grantEquipDrop(tier);
+  } else if (roll < 0.95){                                 // 10 % Edelstein
+    if (!bagAdd('gem',1)) addLoot({ gold: 40 });           // Beutel voll → Gegenwert
+    else toast('💎 Ein Edelstein glitzert in der Truhe!', 3200);
+  } else {                                                 // 5 % Amulett-Rezept
+    const h = state.hero;
+    h.rezepte = h.rezepte || {};
+    const free = ['gluecksamulett','bergmannstalisman','haendlersiegel'].filter(a=>!h.rezepte[a]);
+    if (free.length){
+      const a = free[(Math.random()*free.length)|0];
+      h.rezepte[a] = 1;
+      toast('📜 Amulett-Rezept gefunden: '+HERO_ITEMS[a].name+' – ab sofort schmiedbar!', 4600);
+    } else addLoot(scaleCost(DNG_MAT[tier], 3));
+  }
+  if (dngPos()) spawnBurst(dngPos().x, dngPos().y+0.5, dngPos().z, 8, 0xffd736);
+  snd(600,0.12,'triangle',0.05); snd(820,0.15,'triangle',0.05);
+  save();
+  return true;
+}
+function dngPos(){ return hero ? { x:dlx(hero.x), y:DNG_Y+0.2, z:dlz(hero.y) } : null; }
+// --- Beute & Boss-Abschluss ---
+function killDungeonEnemy(e){
+  const i = dungeonEnemies.indexOf(e);
+  if (i >= 0) dungeonEnemies.splice(i,1);
+  if (e.mesh){ dungeon.roomGrp.remove(e.mesh); disposeGroup(e.mesh); }
+  spawnBurst(dlx(e.x), DNG_Y+0.4, dlz(e.y), 6, 0xff8a5a);
+  snd(180,0.08,'square',0.04);
+  const tier = e.tier;
+  if (e.boss){
+    const isle = dungeon.isle;
+    const ctr = state.dungeons.cleared[isle] || 0;
+    const first = ctr === 0;
+    let gold = first ? 60*tier : Math.round(60*tier*0.6);  // Wiederholung: 60 % Gold
+    if (heroTrinket('gluecksamulett')) gold = Math.round(gold*1.1);
+    addLoot({ gold });
+    giveHeroExp('k', 60*tier);                             // volle EXP, auch wiederholt
+    if (first){
+      grantEquipDrop(tier + ((Math.random()<0.5)?1:0));    // garantiert Tier+0/+1
+      chronicleAdd('dungeon'+isle, '🏆 Dungeon bezwungen: '+DNG_LOOK[tier]+' (Tier '+tier+') – '+
+        DNG_BOSS[tier].name+' fiel vor '+state.hero.name+'.');
+    } else if (Math.random() < 0.30) grantEquipDrop(tier);
+    state.dungeons.cleared[isle] = ctr + 1;
+    delete dungeonRuns[isle];                              // nächster Run: neue Raumfolge
+    for (const r of dungeon.run.rooms) r.cleared = true;   // Rest des Besuchs bleibt friedlich
+    toast('🏆 '+DNG_BOSS[tier].name+' besiegt! Der Rückweg zum Portal ist frei.', 5200);
+    snd(392,0.14,'triangle',0.06); snd(523,0.2,'triangle',0.06);
+    save();
+  } else {
+    let gold = (2 + Math.floor(Math.random()*5)) * tier;   // 2–6·Tier
+    if (heroTrinket('gluecksamulett')) gold = Math.round(gold*1.1);
+    const loot = { gold };
+    if (Math.random() < 0.25) Object.assign(loot, DNG_MAT[tier]);   // 25 % Material-Häppchen
+    addLoot(loot);
+    giveHeroExp('k', 8*tier);
+  }
+  const r = dngRoom();
+  if (r && !dungeonEnemies.length) r.cleared = true;       // Raum bleibt in diesem Run leer
+}
+// Telegraph: roter Bodenkreis 1 s vorher, Schaden nur bei Treffen (alle Boss-Gimmicks)
+function addTele(x, y, r, dmg, kind, src){
+  const m = mesh(dngCircleGeo, DM.tele, false, false);
+  m.rotation.x = -Math.PI/2;
+  m.position.set(dlx(x), 0.06, dlz(y));
+  m.scale.setScalar(r*TL);
+  dungeon.roomGrp.add(m);
+  dngTele.push({ mesh:m, x, y, r, dmg, kind, src, t:1 });
+}
+function bossGimmick(e, dt){
+  const B = DNG_BOSS[e.tier];
+  if (B.gimmick==='adds'){                                 // T1: ruft 2 Adds bei 50 %
+    if (!e.addsDone && e.hp <= e.maxhp*0.5){
+      e.addsDone = 1;
+      for (const off of [[-1.5,0],[1.5,0]]){
+        const ax = clamp(e.x+off[0],1,22), ay = clamp(e.y+off[1],1,22);
+        if (dWalkable(ax,ay)) spawnDungeonEnemy(ax, ay, e.tier, false);
+      }
+      toast('⚔️ Der Räuberhauptmann ruft Verstärkung!', 2600);
+    }
+    return;
+  }
+  e.gt -= dt;
+  if (e.gt > 0) return;
+  e.gt = 8;                                                // Takt 8 s (T4-Vorgabe, T2/T3 gleich)
+  if (B.gimmick==='felder') addTele(hero.x, hero.y, 1.6, B.dmg, 'feld');
+  else if (B.gimmick==='ansturm') addTele(hero.x, hero.y, 1.4, B.dmg, 'ansturm', e);
+  else if (B.gimmick==='puls') addTele(e.x, e.y, 3.0, B.dmg, 'puls');
+  snd(110,0.2,'sawtooth',0.04);
+}
+// --- Haupt-Update: Türen, Gegner-KI, Telegraphen, Failsafes ---
+function updateDungeon(dt){
+  if (!dungeon) return;
+  if (!egoMode || !heroAlive()){                           // Failsafe: nie ohne Ego/Held drin
+    if (dungeon && !egoMode) exitDungeon();
+    return;
+  }
+  // Türwechsel: oben → nächster Raum, unten → voriger Raum / Ausgangs-Portal
+  if (hero.x > 10.4 && hero.x < 13.6){
+    if (hero.y < 1.35 && dungeon.room < dungeon.run.rooms.length-1){
+      loadRoom(dungeon.room+1, 'bottom'); dngFadeFx(); return;
+    }
+    if (hero.y > 22.65){
+      if (dungeon.room > 0){ loadRoom(dungeon.room-1, 'top'); dngFadeFx(); return; }
+      exitDungeon(); return;                               // Startraum: Portal = Ausgang
+    }
+  }
+  // Beide Lichter wandern mit dem Helden (das gesamte Lichtbudget des Dungeons)
+  if (dngLights.length===2){
+    dngLights[0].position.set(dlx(hero.x), 1.6, dlz(hero.y));
+    dngLights[1].position.set(dlx(hero.x + Math.cos(egoYaw)*2), 1.2, dlz(hero.y + Math.sin(egoYaw)*2));
+  }
+  for (const e of dungeonEnemies){
+    e.cd = Math.max(0, e.cd - dt);
+    const d = dist(e.x,e.y,hero.x,hero.y);
+    if (!e.aggro && (d < 5.5 || e.hp < e.maxhp)) e.aggro = true;
+    if (e.boss && e.aggro) bossGimmick(e, dt);
+    if (e.aggro){
+      if (d > 0.85){ e.moving = true; dSteer(e, hero.x, hero.y, e.speed, dt); }
+      else {
+        e.moving = false;
+        e.dir = Math.atan2(hero.y-e.y, hero.x-e.x);
+        if (e.cd <= 0){
+          e.cd = 1.2;
+          hero.hp -= e.dmg;
+          spawnBurst(dlx(hero.x), DNG_Y+0.5, dlz(hero.y), 3, 0xff8a5a);
+          snd(150,0.06,'square',0.03);
+        }
+      }
+    } else e.moving = false;
+  }
+  for (let i=dungeonEnemies.length-1;i>=0;i--)
+    if (dungeonEnemies[i].hp <= 0) killDungeonEnemy(dungeonEnemies[i]);
+  for (let i=dngTele.length-1;i>=0;i--){
+    const tg = dngTele[i];
+    tg.t -= dt;
+    tg.mesh.scale.setScalar(tg.r*TL*(0.88 + 0.12*Math.abs(Math.sin(state.time*10))));
+    if (tg.t <= 0){
+      if (tg.kind==='ansturm' && tg.src && tg.src.hp > 0 && dWalkable(tg.x,tg.y)){
+        tg.src.x = tg.x; tg.src.y = tg.y;                  // Boss stürmt zur Marke
+        spawnBurst(dlx(tg.x), DNG_Y+0.3, dlz(tg.y), 6, 0xffd27a);
+      }
+      if (heroAlive() && dist(hero.x,hero.y,tg.x,tg.y) <= tg.r){
+        hero.hp -= tg.dmg;
+        spawnBurst(dlx(hero.x), DNG_Y+0.5, dlz(hero.y), 5, 0xff5a3a);
+        snd(120,0.12,'sawtooth',0.05);
+      }
+      if (dungeon.roomGrp) dungeon.roomGrp.remove(tg.mesh);   // Geometrie/Material geteilt
+      dngTele.splice(i,1);
+    }
+  }
+}
+// Kegel-Zielsuche auf Dungeon-Portale (Oberwelt, Priorität nach Gegnern)
+function egoPortalTarget(){
+  if (!heroAlive() || dungeon) return null;
+  let best = null, bd2 = 2.51;
+  for (const p of dngPortals){
+    const d = dist(hero.x,hero.y,p.x,p.y);
+    if (d >= bd2) continue;
+    const an = Math.atan2(p.y-hero.y, p.x-hero.x);
+    const da = Math.atan2(Math.sin(an-egoYaw), Math.cos(an-egoYaw));
+    if (Math.abs(da) > 35*Math.PI/180 && d > 0.9) continue;
+    bd2 = d; best = p;
+  }
+  return best;
 }
 
 // ============================== RAUMFAHRT: PLANETEN-KOLONIEN ==============================
@@ -4698,7 +5437,7 @@ function updateAiGuards(dt){
     g.cd = Math.max(0, g.cd-dt);
     let best = null, bd2 = 1e9;
     for (const s of soldiers){ const d = dist(g.x,g.y,s.x,s.y); if (d<bd2){bd2=d;best=s;} }
-    if (heroAlive() && !hero.sail){
+    if (heroAlive() && !hero.sail && !dungeon){   // im Dungeon ist der Held „nicht da“
       const d = dist(g.x,g.y,hero.x,hero.y);
       if (d<bd2){ bd2=d; best=hero; }
     }
@@ -4819,7 +5558,7 @@ function updateEnemies(dt){
     let target = null, tIsUnit = false, bd2 = 1e9;
     for (const s of soldiers){ const d = dist(e.x,e.y,s.x,s.y); if (d<4 && d<bd2){bd2=d;target=s;tIsUnit=true;} }
     // Held wird erst fokussiert, wenn er angreift (aggroT) oder sehr nah steht
-    if (heroAlive() && !hero.sail){
+    if (heroAlive() && !hero.sail && !dungeon){   // Dungeon-Held existiert für Wellen nicht
       const d = dist(e.x,e.y,hero.x,hero.y);
       if (d < (hero.aggroT>0 ? 4 : 2) && d < bd2){ bd2 = d; target = hero; tIsUnit = true; }
     }
@@ -5123,7 +5862,7 @@ function updateAuras(dt){
     laz.push({ x:c[0], y:c[1], isle:isleOf(c[0],c[1]),
       rate:(2+(lvlOf(bd)-1)) * (biomeOfBuilding(bd)==='schnee' ? 1.25 : 1) });
   }
-  const healUnits = heroAlive() ? soldiers.concat([hero]) : soldiers;   // Lazarett heilt auch den Helden
+  const healUnits = (heroAlive() && !dungeon) ? soldiers.concat([hero]) : soldiers;   // Lazarett heilt auch den Helden
   if (laz.length) for (const s of healUnits){
     if (s.sail || s.hp >= s.maxhp) continue;
     let best = null, bd2 = 8.01;       // nur das nächste Lazarett zählt
@@ -6051,7 +6790,8 @@ function updateHUD(dt){
     const bn = $('egoBanner');
     if (nAtk > 0){
       bn.style.display = 'block';
-      bn.textContent = '⚠️ ' + nAtk + ' Angreifer! 🏙️ Zur Stadt';
+      bn.textContent = dungeon ? '⚠️ Angriff auf die Stadt! 🏙️ Verlassen'
+        : '⚠️ ' + nAtk + ' Angreifer! 🏙️ Zur Stadt';
     } else bn.style.display = 'none';
   }
   refreshMenu();
@@ -6161,7 +6901,14 @@ function drawMinimap(){
   for (const e of enemies) if (!e.sail) dot(e.x, e.y, '#ff9d2e', 6);
   // entdeckte Schürf-Spots (gelb, ab Entdeckung durch den Helden)
   for (const s of (state.mineSpots||[])) if (s.found && s.left > 0) dot(s.x, s.y, '#ffd736', 5);
-  if (state.hero && hero) dot(hero.x, hero.y, '#ffe9a0', 6);       // Held (gold)
+  // Dungeon-Eingänge (24c): violettes 🕳️-Symbol, ab Spielstart sichtbar
+  g.font = '12px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const p of dngPortals){
+    dot(p.x, p.y, '#a05ae8', 8);
+    g.fillText('🕳️', (p.x+0.5)*S, (p.y+0.5)*S);
+  }
+  // Held (gold) – im Dungeon zählt die Oberwelt-Position (Eingang)
+  if (state.hero && hero) dot(dungeon ? state.hero.x : hero.x, dungeon ? state.hero.y : hero.y, '#ffe9a0', 6);
   // aktueller Kamera-Ausschnitt
   const ctx0 = cam.tx/TL + C, cty0 = cam.tz/TL + C, half = (cam.dist*0.85)/TL;
   g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2;
@@ -6277,6 +7024,14 @@ function updateDayNight(){
   scene.fog.color.copy(_sky);
   M.window.emissiveIntensity = clamp((0.25-elev)*2.4, 0, 2.1);   // Fenster bleiben Blickfang
   stars.material.opacity = clamp((-elev+0.08)*2.2, 0, 0.95);
+  // Unterwelt-Override (24c): Sonne/Fülllicht stark gedimmt, dunkler Tier-Fog –
+  // near/far setzt enter/exitDungeon, die Farben hier (laufen sonst mit dem Tag mit)
+  if (dungeon){
+    sun.intensity = 0.05;
+    hemi.intensity = 0.32;
+    scene.background.setHex(0x07070b);
+    scene.fog.color.setHex(DNG_FOG_COL[dungeon.tier]);
+  }
 }
 
 // ============================== SPEICHERN / LADEN ==============================
@@ -6307,6 +7062,8 @@ function save(){
       hero: state.hero||null,
       mineSpots: state.mineSpots||null,
       mineCtr: state.mineCtr||null,
+      // 24c: NUR der Abschlusszähler – der laufende Dungeon-Run wird bewusst nicht gespeichert
+      dungeons: state.dungeons||{ cleared:{} },
     }));
   }catch(_){}
 }
@@ -6362,6 +7119,8 @@ function load(){
     // Schürf-Spots (24b): fehlen sie im Save, würfelt initMineSpots() sie seed-deterministisch
     state.mineSpots = Array.isArray(d.mineSpots) ? d.mineSpots : null;
     state.mineCtr = d.mineCtr || null;
+    // Dungeons (24c): Alt-Saves ohne Feld → leerer Zähler; Runs sind nie Teil des Saves
+    state.dungeons = (d.dungeons && d.dungeons.cleared) ? { cleared: d.dungeons.cleared } : { cleared:{} };
     chronWaveRecord = state.wave>1 ? waveStrength(state.wave-1) : 0;   // Rekord neu seeden
     genMap(); buildWorld();
     for (const b of d.buildings){
@@ -6464,11 +7223,14 @@ function clearEntities(){
 function restart(){
   try{ localStorage.removeItem(SAVEKEY); }catch(_){}
   if (egoMode) exitEgo();
+  if (dungeon) exitDungeon();    // Failsafe (exitEgo erledigt es normalerweise schon)
+  for (const k in dungeonRuns) delete dungeonRuns[k];
   clearEntities();
   disposeGroup(bldGroup);
   cancelPlacing(); hideInfo(); closeBuildSheet();
   selected = null; spawnEdge = null; gameOver = false;
   freshGame();
+  initDungeonPortals();
   updateBuildBadge();
   refreshPlanetSky();
   cam.tx = wx(SX-0.5); cam.tz = wz(SY-0.5); cam.dist = 23; cam.az = Math.PI*0.75;
@@ -6478,6 +7240,7 @@ function restart(){
 function init(){
   if (!load()) freshGame();
   if (!state.ai) createAi();     // KI in bestehenden Spielständen nachrüsten
+  initDungeonPortals();          // nach Gebäuden/KI, damit occ/aiOcc respektiert werden
   refreshPlanetSky();
   buildMenu();
   updateBuildBadge();
@@ -6517,6 +7280,7 @@ function loop(now){
     updateEnemies(sdt);
     updateSoldiers(sdt);
     updateHero(sdt);
+    updateDungeon(sdt);
     updateWildlife(sdt);
     updateMining(sdt);
     updateAuras(sdt);
@@ -6540,7 +7304,8 @@ function loop(now){
   for (const e of enemies) syncUnit(e, e.moving, t, dt);
   for (const g of aiGuards) syncUnit(g, g.moving, t, dt);
   for (const a of wildlife) syncUnit(a, a.moving, t, dt);
-  if (heroAlive()){
+  for (const e of dungeonEnemies) syncDngUnit(e, t, dt);
+  if (heroAlive() && !dungeon){          // im Dungeon ist die Figur unsichtbar (Ego)
     syncUnit(hero, hero.moving, t, dt);
     // Hock-Animation beim Schürfen (im Ego ist die Figur ohnehin unsichtbar)
     const hock = mining ? 0.72 : 1;
@@ -6689,5 +7454,35 @@ setTimeout(()=>{
       spawnWildlife(art,x,y){ return spawnWild(art,x,y); },
       clearWildlife(){ for (const a of wildlife) removeUnit(a); wildlife = []; },
       wildTick(sec){ updateWildlife(sec||1); }, wildCapOf, WILD_ARTS, killWild,
-      get egoHands(){return egoHands} };
+      get egoHands(){return egoHands},
+      // Etappe 24c: Dungeons
+      enterDungeon, exitDungeon,
+      get dungeon(){
+        if (!dungeon) return null;
+        const r = dngRoom();
+        return { tier:dungeon.tier, isle:dungeon.isle, room:dungeon.room,
+          rooms:dungeon.run.rooms.map(r2=>r2.tpl),
+          cleared:dungeon.run.rooms.map(r2=>!!r2.cleared),
+          enemies:dungeonEnemies, open:!!(r && r.open),
+          chestOpen:!!(r && r.chestOpen), entry:dungeon.entry, seed:dungeon.run.seed };
+      },
+      killDungeonEnemies(){
+        // bis zu 3 Durchläufe: Boss-Adds (T1) spawnen beim ersten Todestick nach
+        for (let k = 0; k < 3 && dungeonEnemies.length; k++){
+          for (const e of dungeonEnemies) e.hp = 0;
+          updateDungeon(0.01);
+        }
+        return !dungeonEnemies.length;
+      },
+      dungeonGoto(i){ if (dungeon) loadRoom(i, 'bottom'); },
+      dungeonTick(sec){ updateDungeon(sec||1); },
+      get dngPortals(){return dngPortals}, rollDungeonRooms,
+      dungeonRunFor(isle,ctr){ return buildRun(isle, ctr); },
+      openDungeonChest, pullLever, grantEquipDrop,
+      get dngLights(){return dngLights}, get dngTele(){return dngTele},
+      get dngGroup(){return dngGroup},
+      countPointLights(){ let n = 0; scene.traverse(o=>{ if (o.isPointLight) n++; }); return n; },
+      dWalkable, get dngHeroPos(){ return hero ? [hero.x, hero.y] : null },
+      setHeroPos(x,y){ if (hero){ hero.x = x; hero.y = y; } },
+      get fog(){ return { near:scene.fog.near, far:scene.fog.far, color:scene.fog.color.getHex() }; } };
 }, 40);

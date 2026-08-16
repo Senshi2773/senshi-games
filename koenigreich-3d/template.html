@@ -189,6 +189,9 @@
     background:rgba(165,42,32,.93); border:1px solid #ff7a6a; border-radius:11px;
     color:#fff; font-size:13.5px; font-weight:700; white-space:nowrap;
     animation:pulse 1s infinite; cursor:pointer; }
+  /* Dungeon-Blende (Etappe 24c): 0,2 s zu Schwarz + 0,2 s auf = 0,4-s-Fade */
+  #dngFade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none;
+    transition:opacity .2s linear; z-index:40; }
   @media (max-width:479px){
     #topbar { flex-wrap:wrap; overflow-x:hidden; overflow-y:auto; row-gap:4px;
       max-height:88px; right:calc(8px + 102px); }
@@ -275,6 +278,7 @@
 <button class="sbtn" id="egoAct2" title="Beutel">🎒</button>
 <div id="egoStick"><div id="egoKnob"></div></div>
 <div id="egoBanner">⚠️ Angreifer! 🏙️ Zur Stadt</div>
+<div id="dngFade"></div>
 
 <div id="toasts"></div>
 
