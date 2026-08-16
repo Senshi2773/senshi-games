@@ -43,6 +43,18 @@
     margin:8px auto 0; cursor:pointer; touch-action:manipulation; }
   #mapClose { position:absolute; top:10px; right:10px; }
   .map-hint { margin-top:8px; font-size:12px; color:#9db0cc; max-width:min(85vw, 70svh); }
+  /* Etappe 26a: Fortschrittszeile je Fürst unter der Karte */
+  .lord-list { margin-top:9px; display:flex; flex-direction:column; gap:5px;
+    max-width:min(85vw, 70svh); }
+  .lord-row { display:flex; align-items:center; gap:8px; font-size:12.5px; color:#dfe8f5;
+    background:rgba(16,26,44,.55); border:1px solid rgba(120,150,190,.22);
+    border-radius:9px; padding:6px 9px; cursor:pointer; text-align:left; }
+  .lord-row.done { color:#8a97ab; cursor:default; }
+  .lord-dot { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+  .lord-bar { flex:1; height:6px; border-radius:4px; background:rgba(255,255,255,.12);
+    overflow:hidden; min-width:44px; }
+  .lord-bar i { display:block; height:100%; border-radius:4px; }
+  .lord-n { font-variant-numeric:tabular-nums; flex-shrink:0; }
   #wavebar { position:fixed; top:calc(env(safe-area-inset-top,0px) + 58px); left:50%;
     transform:translateX(-50%); padding:5px 14px; font-size:13px; color:#dfe8f5;
     z-index:9; display:flex; gap:8px; align-items:center; }
@@ -330,7 +342,8 @@
     <button class="sbtn" id="mapClose" title="Schließen">✕</button>
     <h1 class="chron-title">🗺️ Inselwelt</h1>
     <canvas id="mapCv" width="512" height="512"></canvas>
-    <div class="map-hint" id="mapHint">Tippen = dorthin springen &nbsp;·&nbsp; 🟡 Rathaus · ⚪ Gebäude · 🟢 Vorposten · 🔴 Ragnar · 🟠 Angreifer · ✨ Schürf-Spot</div>
+    <div class="lord-list" id="lordList"></div>
+    <div class="map-hint" id="mapHint">Tippen = dorthin springen &nbsp;·&nbsp; 🟡 Rathaus · ⚪ Gebäude · 🟢 Vorposten · 🟠 Angreifer · ✨ Schürf-Spot</div>
   </div>
 </div>
 

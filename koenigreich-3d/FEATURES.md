@@ -229,6 +229,38 @@ Stand: 15.08.2026 – vom Spieler gesammelt, Umsetzung erfolgt auf Zuruf.
       Schmiedekunst. Panel-Kopf und Sperrtexte nennen jetzt beide Wege
       („🔒 Schmiedekunst 5 … oder Schmiede/Stahlwerk-Stufe 15").
 
+39. ✅ **Drei Fürsten & neue Siegbedingung** (26a, Spieler-Wunsch
+    „mehrere Gegner, erst besiegt wenn alle Gebäude zerstört sind").
+    - ⚔️ **Fürst Ragnar** (aggressiv, rot), 👑 **Königin Yara**
+      (wirtschaftlich, violett – viele Gebäude, wenig Militär) und
+      🛡️ **Baron Vex** (defensiv, türkis – turmdichte Festung) siedeln
+      auf drei verschiedenen Inseln, nie auf der Heimatinsel. Jeder mit
+      eigenem Bau-Takt, eigener Bau-Reihenfolge, eigenen Wachen und
+      eigener Banner-Farbe (Standarten, Minimap, Richtungspfeil).
+    - 🏁 **Besiegt ist ein Fürst erst ohne jedes Gebäude.** Der
+      Rathaus-Fall ist nur der Wendepunkt: Der Fürst baut nicht mehr,
+      sammelt keine Truppen und überfällt nicht mehr – seine Wachen
+      kämpfen weiter. Jedes Gebäude gibt Plünder-Beute (Rathaus 120 🪙).
+    - 🔁 **Begrenzter Wiederaufbau**: Solange sein Rathaus steht, füllt
+      ein Fürst zerstörte Bauten wieder auf – höchstens 8 Stück.
+      **Todeskampf** unter 20 % seines Rekordbestands: kein Wiederaufbau,
+      kein Nachschub, keine Überfälle mehr.
+    - 🏆 **Teil-Sieg** je Fürst: 600 🪙 + 150 der höchsten
+      Epochen-Ressource + Chronik-Eintrag. Sind alle Fürsten geschlagen,
+      meldet die Chronik den Gesamtsieg.
+    - 📊 **Fortschritt in der Karte**: je Fürst eine Zeile mit
+      Banner-Punkt, Balken und „Rest/Rekord"; Tippen springt zur Basis.
+    - ⚔️ **Belagerungs-Bau**: Turm, Mauer und Tor dürfen auf einer
+      Fürsten-Insel auch außerhalb des eigenen Siedlungsgebiets stehen –
+      nur nicht im Umkreis von 2 Kacheln um Feindgebäude. Fürsten-Wachen
+      reißen Belagerungsbauten aktiv nieder, und die Reparatur-Aura des
+      Verteidigungs-HQ wirkt dort nicht.
+    - 💬 **Rivalität** unter den Fürsten als Meldung mit echtem
+      Mini-Effekt (verspäteter Überfall).
+    - 💾 **Save v3 bleibt kompatibel**: Alte Stände behalten Ragnar samt
+      Basis; die fehlenden Fürsten landen nach und nach auf freien
+      Inseln (Meldung + Chronik). Kein Neustart nötig.
+
 ## ⚔️ Etappe 24 (16.08.2026): Das Helden-System (24a–24e)
 
 31. ✅ **Held & Third-Person-/Ego-Steuerung** (24a + 24e).
