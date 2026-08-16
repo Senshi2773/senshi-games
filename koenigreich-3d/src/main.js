@@ -3010,6 +3010,21 @@ function heroTrinket(id){ return !!(state.hero && state.hero.equip.t === id); }
 function heroDmg(){
   return heroWeaponDmg() * (1 + 0.08*((state.hero ? state.hero.skills.k : 1)-1)) * (isMil()?1.1:1);
 }
+// 24f: flotterer Schlag (0,65 s) für leichte Waffen; die schweren Endgame-Klingen
+// (Stahl/Energie, Tier ≥ 3) behalten 0,8 s, damit der End-DPS-Anker (~120) hält.
+function heroAtkCd(){
+  const w = state.hero && state.hero.equip.w && HERO_ITEMS[state.hero.equip.w];
+  return w && w.tier >= 3 ? 0.8 : 0.65;
+}
+// 24f: Treffer-Feedback – 0,4 s Stagger (kein Angriff/keine Bewegung, CD friert)
+// plus 0,3 Kacheln Rückstoß. Bosse sind ausgenommen.
+function applyStagger(t2){
+  if (!t2 || t2.boss) return;
+  t2.staggerT = 0.4;
+  const a = Math.atan2(t2.y-hero.y, t2.x-hero.x);
+  const nx = t2.x + Math.cos(a)*0.3, ny = t2.y + Math.sin(a)*0.3;
+  if (t2.dng ? dWalkable(nx,ny) : walkable(nx,ny,!!(t2.hostile||t2.camp))){ t2.x = nx; t2.y = ny; }
+}
 function heroSkillCap(){ return Math.min(10, 3 + Math.floor(rathausLvl()/5)); }
 // EXP-Vergabe (24b nutzt sie; Kurve 60·n, Deckel an Rathausstufe gekoppelt)
 function giveHeroExp(skill, n){
@@ -3116,9 +3131,10 @@ function updateHeroAuto(dt){
     else {
       hero.moving = false;
       if (hero.cd<=0){
-        hero.cd = 0.8; hero.aggroT = 5;
+        hero.cd = heroAtkCd(); hero.aggroT = 5;
         hero.dir = Math.atan2(best.y-hero.y, best.x-hero.x);
         best.hp -= heroDmg();
+        applyStagger(best);                // 24f: Treffer-Feedback auch im Auto-Modus
         if (best.hp <= 0){                           // Auto-Kill: halbe Kampf-EXP
           best.heroKill = 1;
           giveHeroExp('k', Math.round((10 + 2*state.wave)*0.5));
@@ -3321,11 +3337,17 @@ function updateHero(dt){
   hero.spotT = (hero.spotT||0) - dt;
   if (hero.spotT <= 0){
     hero.spotT = 0.7;
-    for (const s of (state.mineSpots||[]))
+    for (const s of (state.mineSpots||[])){
       if (!s.found && s.left > 0 && dist(hero.x,hero.y,s.x,s.y) <= 6){
         s.found = 1;
         toast('⛏️ Schürf-Spot entdeckt – glitzernde Kiesbank auf der Karte markiert!', 3000);
       }
+      // 24f: erstes Annähern ohne Goldpfanne → einmaliger Hinweis (persistiert im Save)
+      if (!h.pfanne && !h.pfanneHint && s.left > 0 && dist(hero.x,hero.y,s.x,s.y) <= 2.5){
+        h.pfanneHint = 1;
+        toast(PFANNE_HINT, 5600);
+      }
+    }
   }
   if (hero.sail){ /* Überfahrt läuft in updateAllSails */ }
   else if (egoMode && !h.auto) updateHeroEgo(dt);
@@ -3360,11 +3382,12 @@ function heroAttack(){
   let wild = null, t2 = egoTargetEnemy();
   if (!t2 && !dungeon){ wild = egoTargetWild(); t2 = wild; }
   if (!t2) return false;
-  hero.cd = 0.8;
+  hero.cd = heroAtkCd();
   const a = Math.atan2(t2.y-hero.y, t2.x-hero.x);
   hero.dir = a;
   egoYaw += Math.atan2(Math.sin(a-egoYaw), Math.cos(a-egoYaw))*0.5;   // weiches Eindrehen zum Ziel
   t2.hp -= heroDmg();
+  applyStagger(t2);                        // 24f: 0,4 s Stagger + Rückstoß (nicht bei Bossen)
   if (wild){
     wild.aggro = true;                     // Wehr-Arten schlagen zurück, Flucht-Arten fliehen ohnehin
     wild.heroHit = 1;                      // 24d: nur manuelle Helden-Kills zählen für Jagd-Quests
@@ -3667,12 +3690,12 @@ function showHeroInfo(){
 
 // --- Ausrüstungs-Katalog (Crafting-Tabelle 5.2) ---
 const HERO_ITEMS = {
-  holzknueppel:   { name:'🪵 Holzknüppel',    slot:'w', dmg:8,  tier:0 },   // gratis beim Rekrutieren
+  holzknueppel:   { name:'🪵 Holzknüppel',    slot:'w', dmg:14, tier:0 },   // gratis beim Rekrutieren
   pfanne:         { name:'🥄 Goldpfanne',     slot:'tool', tier:1, cost:{holz:15,gold:20},
                     fx:'schaltet Schürfen frei' },
-  eisenschwert:   { name:'🪓 Eisenschwert',   slot:'w', dmg:18, tier:1, cost:{eisen:20,holz:10,gold:30}, skill:1 },
+  eisenschwert:   { name:'🪓 Eisenschwert',   slot:'w', dmg:22, tier:1, cost:{eisen:20,holz:10,gold:30}, skill:1 },
   lederwams:      { name:'🦺 Lederwams',      slot:'a', hp:40,  tier:1, cost:{nahrung:20,gold:15}, skill:1 },
-  ritterklinge:   { name:'⚔️ Ritterklinge',   slot:'w', dmg:26, tier:2, cost:{eisen:45,gold:60},  skill:3, req:6 },
+  ritterklinge:   { name:'⚔️ Ritterklinge',   slot:'w', dmg:30, tier:2, cost:{eisen:45,gold:60},  skill:3, req:6 },
   eisenharnisch:  { name:'🛡️ Eisenharnisch',  slot:'a', hp:90,  tier:2, cost:{eisen:50,gold:50},  skill:3, req:6 },
   stahlklinge:    { name:'🗡️ Stahlklinge',    slot:'w', dmg:38, tier:3, cost:{stahl:35,gold:90},  skill:5, req:11 },
   stahlpanzer:    { name:'🛡️ Stahlpanzer',    slot:'a', hp:160, tier:3, cost:{stahl:45,gold:110}, skill:5, req:11 },
@@ -3683,6 +3706,8 @@ const HERO_ITEMS = {
   bergmannstalisman:{ name:'🧿 Bergmannstalisman', slot:'t', tier:2, cost:{gold:120,stahl:8}, req:12, fx:'−20 % Schürfdauer' },
   haendlersiegel:   { name:'🧿 Händlersiegel',     slot:'t', tier:3, cost:{gold:160,oel:10},  req:16, fx:'+2 % Kurse' },
 };
+// 24f: einheitlicher Hinweis, wenn ein Schürf-Spot ohne Goldpfanne angeboten wird
+const PFANNE_HINT = 'Du brauchst eine 🥄 Goldpfanne — schmiede sie an der Schmiede (15 🪵 + 20 🪙)';
 const CRAFT_ORDER = ['pfanne','eisenschwert','lederwams','ritterklinge','eisenharnisch',
   'stahlklinge','stahlpanzer','energieklinge','schildgenerator',
   'gluecksamulett','bergmannstalisman','haendlersiegel'];
@@ -4240,14 +4265,13 @@ function egoTargetWild(){
   return best;
 }
 function egoMineTarget(){
+  // 24f: reine Distanzprüfung statt Blick-Kegel – eine Kiesbank ist eine Bodenstelle,
+  // die in Third-Person leicht außerhalb des ±35°-Yaw-Kegels liegt (Pitch zählt ohnehin nie)
   let best = null, bd2 = 2.51;
   for (const s of (state.mineSpots||[])){
     if (s.left <= 0) continue;
     const d = dist(hero.x,hero.y,s.x,s.y);
     if (d >= bd2) continue;
-    const an = Math.atan2(s.y-hero.y, s.x-hero.x);
-    const da = Math.atan2(Math.sin(an-egoYaw), Math.cos(an-egoYaw));
-    if (Math.abs(da) > 35*Math.PI/180 && d > 0.8) continue;   // direkt daneben zählt immer
     bd2 = d; best = s;
   }
   return best;
@@ -4283,10 +4307,11 @@ function egoContext(){
   }
   const w = egoTargetWild();
   if (w) return { act:'hunt', icon:'⚔️', target:w };
-  if (state.hero.pfanne){
-    const s = egoMineTarget();
-    if (s) return { act:'mine', icon:'⛏️', target:s };
-  }
+  // 24f: Spot in Reichweite IMMER anbieten – ohne Pfanne ausgegraut (Tap erklärt, was fehlt)
+  const s = egoMineTarget();
+  if (s) return state.hero.pfanne
+    ? { act:'mine', icon:'⛏️', target:s }
+    : { act:'mineNo', icon:'⛏️', target:s, disabled:1 };
   const sm = nearestInteractBuilding(['schmiede','stahlwerk']);
   if (sm) return { act:'smith', icon:'🔨', target:sm };
   const mk = nearestInteractBuilding(['markt']);
@@ -4305,6 +4330,11 @@ function egoAction(){
   if (c.act==='chest') return openDungeonChest();
   if (c.act==='lever') return pullLever();
   if (c.act==='dexit') return exitDungeon();
+  if (c.act==='mineNo'){                   // 24f: Spot ohne Pfanne angetippt → erklären statt schweigen
+    toast(PFANNE_HINT, 4600);
+    snd(240,0.08,'triangle',0.03);
+    return true;
+  }
   if (c.act==='mine'){
     if (mining){ mining = null; toast('⛏️ Schürfen abgebrochen.'); return true; }
     mining = { spot:c.target, t:0, dur:mineDur(false), auto:false };
@@ -4457,18 +4487,63 @@ function farFromBuildings(x,y,r){
 }
 function wildCapOf(p){ return 3 + Math.floor(((isleAreaP && isleAreaP[p])||0)/300); }
 function wildCountOf(p){ let n = 0; for (const a of wildlife) if (a.parent===p) n++; return n; }
-function findWildTile(p){
+// 24f: Kandidaten mit gegebenem Stadt-Abstand sammeln (bis zu 2 – „Spawnzonen“-Prüfung)
+function findWildTilesAt(p, minD, want){
   const I = ISLES[p];
-  if (!I) return null;
-  for (let tries=0;tries<60;tries++){
+  const found = [];
+  if (!I) return found;
+  for (let tries=0;tries<70 && found.length<(want||2);tries++){
     const a = Math.random()*Math.PI*2, r = Math.random()*I.r;
     const x = Math.round(I.x + Math.cos(a)*r), y = Math.round(I.y + Math.sin(a)*r);
     if (!inMap(x,y) || !walkable(x,y,false)) continue;
     if (isleParent[isleId[idx(x,y)]] !== p) continue;
-    if (!farFromBuildings(x,y,10)) continue;                        // „fern der Stadt“
+    if (!farFromBuildings(x,y,minD)) continue;
+    if (found.some(f=>f[0]===x && f[1]===y)) continue;
+    found.push([x,y]);
+  }
+  return found;
+}
+// 24f: Mindestabstand 8 statt 10; findet sich keine 2. Spawnzone, wird lokal gelockert (6, 4)
+function findWildTile(p){
+  let single = null;
+  for (const minD of [8,6,4]){
+    const f = findWildTilesAt(p, minD, 2);
+    if (f.length >= 2) return f[(Math.random()*f.length)|0];
+    if (f.length && !single) single = f[0];
+  }
+  return single;                           // Notnagel: eine Zone ist besser als keine
+}
+// 24f: Quest-Spawns dürfen NIE leerlaufen – 6 → 4 Kacheln Abstand, notfalls Inselrand
+function findQuestWildTile(p){
+  for (const minD of [6,4]){
+    const f = findWildTilesAt(p, minD, 1);
+    if (f.length) return f[0];
+  }
+  const I = ISLES[p];
+  if (!I) return null;
+  for (let tries=0;tries<160;tries++){     // Inselrand, Stadt-Abstand egal
+    const a = Math.random()*Math.PI*2, r = I.r*(0.7+Math.random()*0.5);
+    const x = Math.round(I.x + Math.cos(a)*r), y = Math.round(I.y + Math.sin(a)*r);
+    if (!inMap(x,y) || !walkable(x,y,false)) continue;
+    if (isleParent[isleId[idx(x,y)]] !== p) continue;
     return [x,y];
   }
   return null;
+}
+// 24f: Garantie-Spawns für eine Jagd-Quest – hält 2–3 Tiere der Art (max. Restbedarf)
+// auf der Quest-Insel am Leben; läuft bei Annahme, nach dem Laden und im Spawner-Takt.
+function ensureQuestWild(q){
+  if (!q || q.typ!=='jagd' || q.phase==='abgeben' || q.have >= q.need) return 0;
+  const p = q.param.isle;
+  const alive = wildlife.reduce((n,a)=>n + (a.art===q.param.art && a.parent===p ? 1 : 0), 0);
+  const want = Math.min(3, Math.max(2, q.need - q.have)) - alive;
+  let n = 0;
+  for (let i=0;i<want;i++){
+    const t2 = findQuestWildTile(p);
+    if (!t2) break;
+    if (spawnWild(q.param.art, t2[0], t2[1])) n++;
+  }
+  return n;
 }
 function spawnWild(art, x, y){
   const W = WILD_ARTS[art];
@@ -4516,12 +4591,15 @@ function updateWildlife(dt){
       if (pref && arts.includes(pref)) spawnWild(pref, t2[0], t2[1]);
       else if (arts.length) spawnWild(arts[(Math.random()*arts.length)|0], t2[0], t2[1]);
     }
+    // 24f: aktive Jagd-Quests nachfüllen (an Caps vorbei – die Quest darf nie leerlaufen)
+    if (state.quests) for (const q of state.quests.active) ensureQuestWild(q);
   }
   // Verhaltens-Schritt deckeln: große dt-Sprünge (Vorspulen/Ruckler) dürfen Tiere
   // nicht über ihre Leine hinaus teleportieren
   const bdt = Math.min(dt, 0.1);
   for (const a of wildlife){
     const W = WILD_ARTS[a.art];
+    if (a.staggerT > 0){ a.staggerT -= bdt; a.moving = false; continue; }  // 24f: Stagger
     a.cd = Math.max(0, a.cd - bdt);
     // Wehr-Art: greift NUR ihren Angreifer (den Helden) an; Leine 8 Kacheln → Rückzug + Heilung
     if (a.aggro && !W.flee){
@@ -5214,6 +5292,8 @@ function updateDungeon(dt){
     dngLights[1].position.set(dlx(hero.x + Math.cos(egoYaw)*2), 1.2, dlz(hero.y + Math.sin(egoYaw)*2));
   }
   for (const e of dungeonEnemies){
+    // 24f: Stagger friert Trash kurz ein; Bosse bekommen nie staggerT (applyStagger)
+    if (e.staggerT > 0){ e.staggerT -= dt; e.moving = false; continue; }
     e.cd = Math.max(0, e.cd - dt);
     const d = dist(e.x,e.y,hero.x,hero.y);
     if (!e.aggro && (d < 5.5 || e.hp < e.maxhp)) e.aggro = true;
@@ -5348,9 +5428,14 @@ function rollQuestOffer(giver){
   const mk = (o)=>Object.assign({ id:'q'+state.quests.seedCtr+'x'+Math.floor(rng()*1e6),
     giver, buerger: giver==='buerger' ? 1 : 0, have:0, tracked:0, phase:'' }, o);
   if (typ==='jagd'){
-    const isle = isles[Math.floor(rng()*isles.length)];
-    const bio = (ISLES[isle] && ISLES[isle].biome) || 'wiese';
-    const arts = Object.keys(WILD_ARTS).filter(k=>WILD_ARTS[k].biome===bio);
+    let isle = isles[Math.floor(rng()*isles.length)];
+    let bio = (ISLES[isle] && ISLES[isle].biome) || 'wiese';
+    let arts = Object.keys(WILD_ARTS).filter(k=>WILD_ARTS[k].biome===bio);
+    if (!arts.length){                     // 24f: Failsafe – nie eine insel-fremde Art fordern
+      isle = isleParent[playerIsle()]||0;
+      bio = (ISLES[isle] && ISLES[isle].biome) || 'wiese';
+      arts = Object.keys(WILD_ARTS).filter(k=>WILD_ARTS[k].biome===bio);
+    }
     const art = arts[Math.floor(rng()*arts.length)] || 'hase';
     const n = 3 + Math.floor(rng()*3);
     const W = WILD_ARTS[art];
@@ -5474,6 +5559,7 @@ function acceptQuest(o){
   if (!Q.active.some(q=>q.tracked)) o.tracked = 1;
   Q.active.push(o);
   if (o.typ==='camp') spawnIntruderCamp();                        // Lager spawnt BEI Annahme
+  if (o.typ==='jagd') ensureQuestWild(o);  // 24f: 2–3 Tiere der Art sofort garantieren
   ensureOffers();
   toast('📜 Auftrag angenommen: '+o.icon+' '+o.title, 3400);
   snd(520,0.08,'triangle',0.04);
@@ -5692,6 +5778,7 @@ function updateCamp(dt){
   // nicht über die 3-Kachel-Leine hinaus teleportieren
   const bdt = Math.min(dt, 0.1);
   for (const e of campEnemies){
+    if (e.staggerT > 0){ e.staggerT -= bdt; e.moving = false; continue; }  // 24f: Stagger
     e.cd = Math.max(0, e.cd - bdt);
     // Angriff nur auf den Helden < 5 Kacheln; Leine 3 Kacheln ums Lager, nie Marsch zur Stadt
     const dh = heroAlive() && !hero.sail && !dungeon ? dist(e.x,e.y,hero.x,hero.y) : 1e9;
@@ -5965,6 +6052,15 @@ function questTargetPos(q){
     return p ? [p.x, p.y] : null;
   }
   if (q.typ==='jagd'){
+    // 24f: nächstes lebendes Quest-Tier als Marker (Minimap/Tracking), sonst Inselmitte
+    let best = null, bd2 = 1e9;
+    const hx = hero ? hero.x : SX, hy = hero ? hero.y : SY;
+    for (const a of wildlife){
+      if (a.art !== q.param.art || a.parent !== q.param.isle) continue;
+      const d = dist(a.x,a.y,hx,hy);
+      if (d < bd2){ bd2 = d; best = a; }
+    }
+    if (best) return [best.x, best.y];
     const I = ISLES[q.param.isle];
     return I ? [Math.round(I.x), Math.round(I.y)] : null;
   }
@@ -6328,6 +6424,7 @@ function updateAiGuards(dt){
   const ai = state.ai;
   if (!ai) return;
   for (const g of aiGuards){
+    if (g.staggerT > 0){ g.staggerT -= dt; g.moving = false; continue; }   // 24f: Stagger
     g.cd = Math.max(0, g.cd-dt);
     let best = null, bd2 = 1e9;
     for (const s of soldiers){ const d = dist(g.x,g.y,s.x,s.y); if (d<bd2){bd2=d;best=s;} }
@@ -6448,6 +6545,11 @@ function spawnEnemy(x,y){
 function updateEnemies(dt){
   for (const e of enemies){
     if (e.sail) continue;                            // segelt noch zur Insel
+    // 24f: Stagger – kurz benommen (keine Bewegung, kein Angriff, CD friert)
+    if (e.staggerT > 0){
+      e.staggerT -= dt; e.moving = false; e.px = e.x; e.py = e.y;
+      continue;
+    }
     e.cd = Math.max(0,e.cd-dt);
     let target = null, tIsUnit = false, bd2 = 1e9;
     for (const s of soldiers){ const d = dist(e.x,e.y,s.x,s.y); if (d<4 && d<bd2){bd2=d;target=s;tIsUnit=true;} }
@@ -7706,6 +7808,9 @@ function updateHUD(dt){
     const actBtn = $('egoAct');
     actBtn.style.display = ctx2 ? 'flex' : 'none';
     if (ctx2) actBtn.textContent = ctx2.icon;
+    // 24f: Kontext ohne Voraussetzung (z. B. Schürfen ohne Pfanne) → ausgegraut, Tap erklärt
+    actBtn.style.opacity = ctx2 && ctx2.disabled ? '0.45' : '';
+    actBtn.style.filter = ctx2 && ctx2.disabled ? 'grayscale(1)' : '';
     $('egoAct2').style.display = hero.sail ? 'none' : 'flex';
     const nAtk = enemies.filter(e=>!e.sail).length;
     const bn = $('egoBanner');
@@ -8088,6 +8193,8 @@ function load(){
       spawnIntruderCamp(state.quests.camp.x, state.quests.camp.y);
     else if (state.quests.camp && !state.quests.active.some(q=>q.typ==='camp'))
       state.quests.camp = null;
+    // 24f: Wildtiere sind flüchtig – laufende Jagd-Quests sofort wieder erfüllbar machen
+    for (const q of state.quests.active) ensureQuestWild(q);
     // Migration Etappe 21: Panzer/Flieger kommen jetzt aus Fabrik & Flugfeld (einmaliger Hinweis)
     if (!state.fabHint && state.buildings.some(b=>b.t==='kaserne' && lvlOf(b)>=16) &&
         !state.buildings.some(b=>b.t==='fabrik')){
@@ -8513,5 +8620,11 @@ setTimeout(()=>{
       get campOrphanT(){ return campOrphanT; },
       questTick(sec){ updateQuests(sec||1); },
       setGratitude(v){ state.quests.gratitude = v; },
-      setCitizenTimer(v){ citizenT = v; } };
+      setCitizenTimer(v){ citizenT = v; },
+      // Etappe 24f: Schürf-Kontext, Helden-Kampfgefühl, Jagd-Quest-Garantien
+      heroAtkCd, applyStagger, heroAttack(){ return heroAttack(); },
+      egoMineTarget, ensureQuestWild, findQuestWildTile, findWildTile,
+      questPreferredArt, enemyTick(sec){ updateEnemies(sec||0.1); },
+      get wildSpawnT(){ return wildSpawnT; }, set wildSpawnT(v){ wildSpawnT = v; },
+      get PFANNE_HINT(){ return PFANNE_HINT; } };
 }, 40);
