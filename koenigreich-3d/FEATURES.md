@@ -187,6 +187,28 @@ Stand: 15.08.2026 – vom Spieler gesammelt, Umsetzung erfolgt auf Zuruf.
       (Artifact + PR, gleiche URL), `/neues-gebaeude` (13-Punkte-Checkliste
       für neue Gebäudetypen).
 
+## 🛡️ Etappe 25 (16.08.2026): Händler, Held 2.0, Test-Konsole
+
+35. ✅ **Ausrüstungs-Händler am Markt** (25a). Markt-Tabs „🧺 Waren |
+    ⚔️ Ausrüstung": alle freigeschalteten Waffen/Rüstungen/Amulette
+    direkt für Spielgold kaufen — ohne Schmiede-Ausbau, sofort angelegt,
+    Alt-Teil wird in Zahlung genommen. Kaufen ist bequemer, Craften
+    bleibt günstiger (Aufschlag 25 %, sinkt mit Handels-Fertigkeit).
+    Kein Echtgeld — das Anti-Käufe-Siegel bleibt wahr.
+
+36. ✅ **Held 2.0** (25b, nach Konzeptbild des Spielers). Detail-Rüstung
+    mit Schulterplatten und Metall-Glanz, dunkelblauer Umhang mit
+    goldenem, gekröntem Löwen-Wappen (generierte Textur, weht im Wind)
+    — und die Rüstung wandelt sich mit den Epochen: Ritterharnisch →
+    Industrie-Plattenlook → Anzug mit blauen Leuchtstreifen → heller
+    Zukunfts-Tech-Anzug. Ego-Handschuhe ziehen mit.
+
+37. ✅ **Admin-Konsole nur im privaten Build** (25c). 🛠️-Knopf mit
+    Test-Cheats (Ressourcen, Rathaus-Stufe/Epoche setzen, Skills max,
+    Gottmodus, Wellen steuern, Teleport, Quest/Dungeon-Werkzeuge,
+    Zeitraffer) — per Build-Schalter ausschließlich in der privaten
+    Version; der öffentliche Build enthält kein Admin-UI.
+
 ## ⚔️ Etappe 24 (16.08.2026): Das Helden-System (24a–24e)
 
 31. ✅ **Held & Third-Person-/Ego-Steuerung** (24a + 24e).
