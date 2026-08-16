@@ -33,6 +33,25 @@ Details und Feature-Historie: [`koenigreich-3d/FEATURES.md`](koenigreich-3d/FEAT
 `koenigreich/` enthält die ursprüngliche 2.5D-Version (Canvas-Iso-Sprites) —
 der Vorgänger, aus dem Königreich 3D entstanden ist.
 
+## 🐐 Die sieben Geißlein und der liebe Wolf
+
+Ein liebevolles Märchenspiel für **Kinder ab 5 Jahren** – frei nach dem
+Grimm-Märchen, aber mit einem **lieben Wolf**. Installierbare Web-App (PWA)
+für Android und iPhone, offline spielbar.
+
+**Spielen:** `sieben-geisslein-spiel/index.html` im Browser öffnen (für
+Installation & Offline-Modus per HTTPS hosten). ✅ Kein Verlieren möglich ·
+Kein Lesezwang (Vorlese-Funktion) · Keine Werbung.
+
+- 🙈 **Verstecken suchen** in 3 Räumen mit je ~12 Verstecken (nur 7 belegt,
+  zufällig neu) – mit Wackel- und Kicher-Hinweisen und 🐣/🦊-Schwierigkeitsstufen
+- 🃏 **Memory** (8 Paare), 🎂 **Kuchen backen** mit Rezept und Ofen,
+  🧺 **Picknick-Spiel** mit Leckerli-Fangen (Gemüse fallen lassen!)
+- 🏅 **Sticker-Album**, Geißlein mit Namen, synthetisierte Sounds und
+  Hintergrundmusik, optional eigene Stimmaufnahmen
+
+Details: [`sieben-geisslein-spiel/README.md`](sieben-geisslein-spiel/README.md)
+
 ## 🛠️ Entwicklungs-Team (Claude Code)
 
 `.claude/` enthält das komplette Spielentwicklungs-Studio als Agenten und
