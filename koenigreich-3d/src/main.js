@@ -2817,7 +2817,8 @@ function makePerson(kind, matIdx){
   return g;
 }
 function syncUnit(u, moving, t, dt){
-  if (u.sail) return;                    // Einheit ist an Bord eines Schiffs
+  // Einheit ist an Bord eines Schiffs; beim Ausstieg (25d: sail.leave) animiert sie normal
+  if (u.sail && !u.sail.leave) return;
   const g = u.mesh;
   dt = dt||0.016;
   // Gang weich ein-/ausblenden statt hart zu schalten
@@ -3168,27 +3169,66 @@ function startSail(u, destX, destY){
   const [bg,fg] = u.mesh.userData.hp || [];
   if (bg){ bg.visible = false; fg.visible = false; }
 }
+// 25d: Angelegte Boote bleiben kurz liegen und versinken dann (rein kosmetisch)
+const sinkingBoats = [];
+function sinkBoat(boat){ if (boat) sinkingBoats.push({ boat, t:0, ph:Math.random()*7 }); }
+// Fahrt hart abbrechen (Tod/Teleport/Neustart) – Boot kann in der Ausstiegsphase fehlen
+function cancelSail(u){
+  if (!u || !u.sail) return;
+  if (u.sail.boat){ fxGroup.remove(u.sail.boat); disposeGroup(u.sail.boat); }
+  u.sail = null;
+}
+function updateSinkingBoats(dt){
+  for (let i=sinkingBoats.length-1;i>=0;i--){
+    const b = sinkingBoats[i];
+    b.t += dt;
+    b.boat.rotation.z = Math.sin(state.time*1.8+b.ph)*0.04;
+    if (b.t > 1.0){ b.boat.position.y -= dt*0.5; b.boat.rotation.z += (b.t-1.0)*0.3; }
+    if (b.t >= 2.6){ fxGroup.remove(b.boat); disposeGroup(b.boat); sinkingBoats.splice(i,1); }
+  }
+}
 function updateSail(u, dt){
   const s = u.sail;
+  if (s.leave){
+    // Ausstieg: sichtbar von der Ankerstelle zur Landekachel laufen (syncUnit animiert)
+    s.leave.t += dt;
+    const q = Math.min(1, s.leave.t/s.leave.dur);
+    u.x = lerp(s.leave.x0, s.leave.x1, q);
+    u.y = lerp(s.leave.y0, s.leave.y1, q);
+    u.dir = Math.atan2(s.leave.y1-s.leave.y0, s.leave.x1-s.leave.x0);
+    u.moving = true;
+    if (q >= 1){ u.moving = false; u.sail = null; }
+    return;
+  }
   s.t += dt/s.dur;
   const p = Math.min(s.t, 1);
   const bx2 = lerp(s.x0,s.x1,p), by2 = lerp(s.y0,s.y1,p);
   s.boat.position.set(wx(bx2), -0.02+Math.sin(state.time*2.2+s.ph)*0.06, wz(by2));
   s.boat.rotation.y = -Math.atan2(s.y1-s.y0, s.x1-s.x0);
   s.boat.rotation.z = Math.sin(state.time*1.8+s.ph)*0.04;
-  if (Math.random() < dt*2) spawnBurst(wx(bx2)-Math.cos(s.boat.rotation.y)*0.6, 0.05, wz(by2), 1, 0xdff2ff);
-  if (s.t >= 1){
-    const land = findLanding(s.destX, s.destY);
-    u.x = land[0]; u.y = land[1];
-    u.mesh.visible = true;
-    fxGroup.remove(s.boat); disposeGroup(s.boat);
-    u.sail = null;
+  if (s.t < 1){
+    if (Math.random() < dt*2) spawnBurst(wx(bx2)-Math.cos(s.boat.rotation.y)*0.6, 0.05, wz(by2), 1, 0xdff2ff);
+    return;
   }
+  // Angelegt: Boot stoppt auf der letzten Wasserkachel (s.x1/s.y1 = findCoastWater),
+  // kurze Anlege-Pause, dann steigt die Einheit aus und das Boot versinkt.
+  // Rein timer-gesteuert – kann nie hängen bleiben (Failsafe).
+  if (s.dock === undefined) s.dock = 0.5;
+  s.dock -= dt;
+  if (s.dock > 0) return;
+  const land = findLanding(s.destX, s.destY);          // Fallback: liefert notfalls dest selbst
+  u.x = s.x1; u.y = s.y1;
+  u.mesh.visible = true;
+  s.leave = { x0:s.x1, y0:s.y1, x1:land[0], y1:land[1], t:0,
+    dur: clamp(dist(s.x1,s.y1,land[0],land[1])/2.0, 0.3, 2.2) };
+  sinkBoat(s.boat);
+  s.boat = null;
 }
 function updateAllSails(dt){
   for (const s of soldiers) if (s.sail) updateSail(s, dt);
   for (const e of enemies) if (e.sail) updateSail(e, dt);
   if (hero && hero.sail) updateSail(hero, dt);
+  updateSinkingBoats(dt);
 }
 // Siedler-Expeditionen (gründen Vorposten)
 let expeditions = [];
@@ -3212,7 +3252,11 @@ function updateExpeditions(dt){
     s.boat.position.set(wx(lerp(s.x0,s.x1,p)), -0.02+Math.sin(state.time*2+s.ph)*0.06, wz(lerp(s.y0,s.y1,p)));
     s.boat.rotation.y = -Math.atan2(s.y1-s.y0, s.x1-s.x0);
     if (s.t >= 1){
-      fxGroup.remove(s.boat); disposeGroup(s.boat);
+      // 25d: Anlege-Pause an der letzten Wasserkachel, dann versinkt das Boot
+      if (s.dock === undefined) s.dock = 0.5;
+      s.dock -= dt;
+      if (s.dock > 0) continue;
+      sinkBoat(s.boat);
       expeditions.splice(i,1);
       // Vorposten am Ziel errichten (bei Blockade Nachbarplatz suchen)
       let spot = null;
@@ -3381,7 +3425,7 @@ function heroDie(){
   }
   state.hero.respawn = 20;
   if (egoMode) exitEgo();
-  if (hero.sail){ fxGroup.remove(hero.sail.boat); disposeGroup(hero.sail.boat); hero.sail = null; }
+  cancelSail(hero);
   hero.hp = 0; hero.fallT = 0; hero.moving = false; hero.patrol = null;
   spawnBurst(wx(hero.x), Math.max(hAt(hero.x,hero.y),0)+0.4, wz(hero.y), 8, 0xffd75a);
   if (!chronicleHas('heldFall'))
@@ -3547,6 +3591,17 @@ function updateHeroAuto(dt){
     }
   } else hero.moving = false;
 }
+// 25d: Manuelle Steuerung (Ego/Third-Person) – Gebäudekacheln blocken den Helden,
+// eigene Tore und Ruinen bleiben passierbar. NUR für den manuell gesteuerten Helden:
+// Auto-Held und alle anderen Einheiten laufen weiter durch Gebäude, denn ohne
+// Pathfinding würden sie sich sonst zwischen Bauten festlaufen.
+function heroManualWalkable(fx,fy){
+  if (!walkable(fx,fy,false)) return false;
+  const o = occ[idx(Math.round(fx),Math.round(fy))];
+  if (!(o>0)) return true;
+  const bd = state.buildings[o-1];
+  return !!bd.ruin || !!BT[bd.t].gate;
+}
 // --- Ego-Steuerung: Joystick-Bewegung mit walkable-Parität und Substeps ---
 function updateHeroEgo(dt){
   const len = Math.min(1, Math.hypot(egoStick.x, egoStick.y));
@@ -3557,8 +3612,9 @@ function updateHeroEgo(dt){
     const vl = Math.hypot(vx,vy)||1; vx/=vl; vy/=vl;
     const stepAll = sp*dt, n = Math.max(1, Math.ceil(stepAll/0.3));
     let movedAny = false;
-    // Im Dungeon gilt das 24×24-Raster (dOcc), sonst walkable-Parität der Einheiten
-    const wk = (x,y)=> dungeon ? dWalkable(x,y) : walkable(x,y,false);
+    // Im Dungeon gilt das 24×24-Raster (dOcc); in der Oberwelt blocken zusätzlich
+    // Gebäude (25d, heroManualWalkable) – Tore/Ruinen bleiben offen
+    const wk = (x,y)=> dungeon ? dWalkable(x,y) : heroManualWalkable(x,y);
     const tryMove = (dx,dy)=>{
       const l2 = Math.hypot(dx,dy);
       if (l2 < 1e-6) return false;
@@ -3614,6 +3670,13 @@ function updateHero(dt){
   // Failsafe: Kachel unbegehbar geworden (Terraforming/Neubau) → nächste freie Kachel
   if (!hero.sail && !walkable(hero.x, hero.y, false)){
     const l = findLanding(Math.round(hero.x), Math.round(hero.y));
+    hero.x = l[0]; hero.y = l[1];
+  }
+  // 25d-Failsafe: manuell gesteuert IN einem Gebäude (Umschalten/Neubau auf der
+  // Helden-Kachel) → auf die nächste für ihn begehbare Kachel heraussetzen
+  if (!hero.sail && egoMode && !h.auto && !dungeon && !heroManualWalkable(hero.x, hero.y)){
+    const l = nearestTile(Math.round(hero.x), Math.round(hero.y), heroManualWalkable)
+      || findLanding(Math.round(hero.x), Math.round(hero.y));
     hero.x = l[0]; hero.y = l[1];
   }
   hero.maxhp = heroMaxHp();
@@ -3822,7 +3885,9 @@ function egoPointerUp(e){
     egoStick.x = 0; egoStick.y = 0;
     $('egoStick').style.display = 'none';
   } else if (!p.moved && performance.now()-p.t < 200){
-    egoAction();                         // Tap = Kontext-Interaktion aufs Fadenkreuz-Ziel
+    // 25d: offenes Sheet (Beutel/Crafting/Handel) → Tap in die Welt schließt es nur
+    if (ui.info.style.display === 'block') hideInfo();
+    else egoAction();                    // Tap = Kontext-Interaktion aufs Fadenkreuz-Ziel
   }
 }
 $('egoExit').addEventListener('click', ()=>exitEgo());
@@ -3837,7 +3902,11 @@ $('egoView').addEventListener('click', ()=>{
   save();
 });
 $('egoAct').addEventListener('click', ()=>egoAction());
-$('egoAct2').addEventListener('click', ()=>showBagSheet());
+$('egoAct2').addEventListener('click', ()=>{
+  // 25d: 🎒 togglet – offener Beutel wird wieder geschlossen
+  if (ui.info.style.display === 'block' && $('ipName').textContent.startsWith('🎒')) hideInfo();
+  else showBagSheet();
+});
 $('egoBanner').addEventListener('click', ()=>{
   // Zur Stadt: Orbit-Kamera zentriert auf den nächsten Angreifer, Held → Auto-Modus.
   // Im Dungeon zählt die Oberwelt-Position (Eingang) – exitEgo verlässt auch die Unterwelt.
@@ -3872,8 +3941,8 @@ function tpCamDist(n, dist0){
   return dist0;
 }
 function egoView(dt){
-  if (hero.sail){
-    // ⛵ Verfolger-Kamera: hinter dem Boot her, Blick aufs Boot
+  if (hero.sail && hero.sail.boat){
+    // ⛵ Verfolger-Kamera: hinter dem Boot her, Blick aufs Boot (Ausstieg: normale Sicht)
     const s = hero.sail, bp = s.boat.position;
     const dxn = s.x1-s.x0, dyn = s.y1-s.y0, l = Math.hypot(dxn,dyn)||1;
     _egoCam.position.set(bp.x - dxn/l*7, 3.4, bp.z - dyn/l*7);
@@ -3924,7 +3993,7 @@ function updateCamCombined(dt){
   _fromPos.copy(camera.position); _fromQ.copy(camera.quaternion);
   if (hero) egoView(dt);
   const s = egoBlend*egoBlend*(3-2*egoBlend);
-  const egoLike = heroView()==='ego' || (hero && hero.sail);      // Boot-Kamera wie bisher
+  const egoLike = heroView()==='ego' || (hero && hero.sail && hero.sail.boat);   // Boot-Kamera wie bisher
   viewFov += ((egoLike ? 70 : 60) - viewFov)*Math.min(1, dt*6);
   camera.position.lerpVectors(_fromPos, _egoCam.position, s);
   camera.quaternion.slerpQuaternions(_fromQ, _egoCam.quaternion, s);
@@ -4217,6 +4286,12 @@ function bestSmithLvl(tier){
 function craftDiscount(){
   return state.hero ? Math.min(0.30, 0.04*(state.hero.skills.c-1)) : 0;
 }
+// 25d: Effektive Freischalt-Stufe = max(Schmiedekunst, Gebäudestufe/3) – eine hohe
+// Schmiede kompensiert niedrigen Skill. Der Kosten-RABATT bleibt an der echten
+// Schmiedekunst (craftDiscount), damit sich das Schmieden weiter lohnt.
+function craftUnlockLvl(tier){
+  return Math.max(state.hero ? state.hero.skills.c : 0, Math.floor(bestSmithLvl(tier)/3));
+}
 function craftCost(id){
   return scaleCost(HERO_ITEMS[id].cost||{}, 1 - craftDiscount());
 }
@@ -4226,7 +4301,9 @@ function craftGate(id){
   if (!state.hero) return 'Kein Held rekrutiert';
   if (id==='pfanne' && state.hero.pfanne) return '✔ im Besitz';
   if (it.slot!=='tool' && state.hero.equip[it.slot]===id) return '✔ angelegt';
-  if (it.skill && state.hero.skills.c < it.skill) return '🔒 Schmiedekunst '+it.skill;
+  if (it.skill && craftUnlockLvl(it.tier) < it.skill)
+    return '🔒 Schmiedekunst '+it.skill+' – steigt durchs Schmieden – oder '+
+      (it.tier>=3 ? 'Schmiede/Stahlwerk' : 'Schmiede')+'-Stufe '+(it.skill*3);
   // Amulette: Dungeon-Rezeptfund (24c) schaltet vor dem Rathaus-Gate frei
   if (it.req && rathausLvl() < it.req &&
       !(it.slot==='t' && state.hero.rezepte && state.hero.rezepte[id]))
@@ -4278,9 +4355,13 @@ function craftHero(id){
 function openCraftSheet(bd){
   const h = state.hero;
   if (!h) return;
-  $('ipName').textContent = '🔨 '+BT[bd.t].name+' · Crafting (Schmiedekunst '+h.skills.c+')';
-  $('ipDesc').textContent = 'Sofortiges Schmieden – Rabatt '+Math.round(craftDiscount()*100)+
-    ' % durch Schmiedekunst. Nuggets im Beutel zahlen mit (Gegenwert in Gold).';
+  // 25d: Der Kopf nennt beide Freischalt-Wege – Schmiedekunst UND Gebäudestufe
+  $('ipName').textContent = '🔨 '+BT[bd.t].name+' · Crafting (Schmiedekunst '+h.skills.c+
+    ' · Werkstatt-Stufe '+lvlOf(bd)+')';
+  $('ipDesc').textContent = 'Freigeschaltet wird über Schmiedekunst ODER Werkstatt-Stufe '+
+    '(je 3 Stufen = 1 Schmiedekunst) – es zählt der höhere Wert. Rabatt '+
+    Math.round(craftDiscount()*100)+' % kommt allein von der Schmiedekunst, die mit jedem '+
+    'geschmiedeten Stück steigt. Nuggets im Beutel zahlen mit (Gegenwert in Gold).';
   $('ipStats').textContent = equipLabel('w')+' · '+equipLabel('a')+' · '+equipLabel('t')+
     (h.pfanne ? ' · 🥄 Goldpfanne' : '');
   const btns = $('ipBtns'); btns.innerHTML = '';
@@ -4299,7 +4380,9 @@ function openCraftSheet(bd){
     const why = craftGate(id);
     if (why){
       const st2 = document.createElement('div');
-      st2.style.cssText = 'font-size:11.5px;color:'+(why[0]==='✔' ? '#9fd8a8' : '#9aa7bb')+';flex-shrink:0';
+      // 25d: Gate-Texte nennen beide Wege (Skill ODER Gebäudestufe) → dürfen umbrechen
+      st2.style.cssText = 'font-size:11.5px;color:'+(why[0]==='✔' ? '#9fd8a8' : '#9aa7bb')+
+        ';flex-shrink:0;max-width:56%;text-align:right';
       st2.textContent = why;
       row.appendChild(st2);
     } else {
@@ -8251,7 +8334,13 @@ function updateHUD(dt){
     // 24f: Kontext ohne Voraussetzung (z. B. Schürfen ohne Pfanne) → ausgegraut, Tap erklärt
     actBtn.style.opacity = ctx2 && ctx2.disabled ? '0.45' : '';
     actBtn.style.filter = ctx2 && ctx2.disabled ? 'grayscale(1)' : '';
-    $('egoAct2').style.display = hero.sail ? 'none' : 'flex';
+    const a2 = $('egoAct2');
+    a2.style.display = hero.sail ? 'none' : 'flex';
+    // 25d: offenes Sheet → 🎒 rutscht über das Panel; das ✕ oben rechts wird frei
+    if (ui.info.style.display === 'block' && !hero.sail){
+      const rTop = ui.info.getBoundingClientRect().top;
+      a2.style.bottom = Math.min(window.innerHeight - 66, window.innerHeight - rTop + 10) + 'px';
+    } else a2.style.bottom = '';
     const nAtk = enemies.filter(e=>!e.sail).length;
     const bn = $('egoBanner');
     if (nAtk > 0){
@@ -8447,7 +8536,7 @@ function adminTeleport(i){
     (px,py)=>walkable(px,py) && isleParent[isleOf(px,py)]===i, Math.ceil(I.r)+8)
     || findLanding(I.x, I.y);
   if (hero && state.hero){
-    if (hero.sail){ fxGroup.remove(hero.sail.boat); disposeGroup(hero.sail.boat); hero.sail = null; }
+    cancelSail(hero);
     mining = null;
     hero.x = spot[0]; hero.y = spot[1];
     hero.moving = false; hero.patrol = null;
@@ -8978,8 +9067,12 @@ function clearEntities(){
   if (state) for (const bd of state.buildings)
     if (bd.workers){ bd.workers.forEach(removeUnit); bd.workers = null; }
   for (const ex of expeditions){ fxGroup.remove(ex.boat); disposeGroup(ex.boat); }
+  for (const u of soldiers) cancelSail(u);           // 25d: Boote segelnder Einheiten
+  for (const u of enemies) cancelSail(u);
+  for (const b of sinkingBoats){ fxGroup.remove(b.boat); disposeGroup(b.boat); }
+  sinkingBoats.length = 0;
   if (hero){
-    if (hero.sail){ fxGroup.remove(hero.sail.boat); disposeGroup(hero.sail.boat); }
+    cancelSail(hero);
     removeUnit(hero); hero = null;
   }
   for (const a of wildlife) removeUnit(a);
@@ -9353,5 +9446,10 @@ setTimeout(()=>{
       adminGiveRes, adminAllRes, adminSetRathaus, adminSeenAll, adminSpeed,
       adminWaveNow, adminWaveEnd, adminDefeatRagnar, adminSkillsMax, adminSkillExp,
       adminGiveItem, adminFillBag, adminTeleport, adminDungeonsClear,
-      adminDungeonsReset, adminCompleteQuest, adminRerollOffers, openAdminSheet };
+      adminDungeonsReset, adminCompleteQuest, adminRerollOffers, openAdminSheet,
+      // Etappe 25d: Boots-Anlegen, Helden-Kollision, Craft-Freischaltung
+      craftUnlockLvl, heroManualWalkable, startSail, cancelSail,
+      get sinkingBoats(){ return sinkingBoats; },
+      sailTick(sec){ updateAllSails(sec||0.1); },
+      get tiles(){ return tiles; }, idx };
 }, 40);

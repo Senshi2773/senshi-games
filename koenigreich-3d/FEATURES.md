@@ -209,6 +209,26 @@ Stand: 15.08.2026 – vom Spieler gesammelt, Umsetzung erfolgt auf Zuruf.
     Zeitraffer) — per Build-Schalter ausschließlich in der privaten
     Version; der öffentliche Build enthält kein Admin-UI.
 
+38. ✅ **Spieltest-Hotfixes** (25d, vier Spieler-Meldungen).
+    - ⛵ **Boote legen an**: Das Schiff stoppt auf der letzten Wasserkachel
+      vor der Küste, hält kurz, dann steigt die Einheit sichtbar aus und
+      läuft an Land (Held, Armee, Siedler-Expeditionen und die Boote der
+      Räuber gleichermaßen). Das leere Boot bleibt liegen und versinkt.
+    - 🎒 **Beutel schließt wieder**: Zweiter Tipp auf 🎒 schließt ihn,
+      ebenso ein Tipp in die Welt oder das Verlassen der Heldensicht;
+      der 🎒-Knopf rückt über das Panel, das ✕ bleibt frei.
+    - 🧱 **Held läuft nicht mehr durch Gebäude**: In der manuellen
+      Steuerung blocken Gebäudekacheln den Helden; eigene Tore und
+      Ruinen bleiben passierbar. Auto-Held und Truppen bleiben
+      unverändert (kein Festlaufen ohne Wegfindung). Ein Failsafe setzt
+      einen eingeschlossenen Helden auf die nächste freie Kachel.
+    - 🔨 **Schmieden ist wieder verständlich**: Freigeschaltet wird über
+      **Schmiedekunst ODER Werkstatt-Stufe** (3 Gebäudestufen = 1
+      Schmiedekunst) — es zählt der höhere Wert; eine große Schmiede
+      allein reicht also. Der Kosten-Rabatt hängt weiter an der echten
+      Schmiedekunst. Panel-Kopf und Sperrtexte nennen jetzt beide Wege
+      („🔒 Schmiedekunst 5 … oder Schmiede/Stahlwerk-Stufe 15").
+
 ## ⚔️ Etappe 24 (16.08.2026): Das Helden-System (24a–24e)
 
 31. ✅ **Held & Third-Person-/Ego-Steuerung** (24a + 24e).
