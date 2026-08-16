@@ -307,7 +307,8 @@ function newState(seed){
   return { seed, time:26,
     res:{ holz:90, stein:40, nahrung:70, gold:25, erz:0, eisen:0, stahl:0, oel:0, lithium:0 },
     pop:4, buildings:[], chopped:[], regrown:[], terra:[], wave:1, waveTimer:330,
-    waveActive:false, soldiersOwned:0, popTick:0, muted:false, doctrine:null, ai:null,
+    waveActive:false, soldiersOwned:0, popTick:0, muted:false, doctrine:null,
+    ais:[], newLordT:0, lordsWon:0,
     planets:[], chronicle:[], research:{}, researchJob:null,
     dungeons:{ cleared:{} },
     quests:{ offers:[], active:[], done:0, seedCtr:0, gratitude:0, camp:null },
@@ -2147,8 +2148,10 @@ function canPlace(t,x,y){
     if (tiles[k]!==2 || occ[k] || aiOcc[k] || treeMap[k] || rockMap[k]) return false;
     // Dungeon-Portale (24c) sind unantastbar – 1 Kachel Abstand
     if (dngPortals.some(p=>Math.abs(px-p.x)<=1 && Math.abs(py-p.y)<=1)) return false;
-    // normale Gebäude nur im Siedlungsgebiet (Expeditionen gründen neue)
-    if (!b.vorp && !inSettlement(px,py)) return false;
+    // normale Gebäude nur im Siedlungsgebiet (Expeditionen gründen neue).
+    // 26a §8.2: Turm/Mauer/Tor dürfen zusätzlich als Belagerungs-Bau auf einer
+    // Fürsten-Insel entstehen – nur nicht direkt am Feindlager.
+    if (!b.vorp && !inSettlement(px,py) && !siegeAllowed(t,px,py)) return false;
   }
   // Hafen und Leuchtturm brauchen direkten Wasserzugang
   if (b.harbor || b.coast)
@@ -2178,7 +2181,7 @@ function applyTerraform(kind, x, y){
     bd.mesh.position.y = Math.max(hAt(cx,cy), 0.02);
     orientHarbor(bd);        // neues Ufer: Steg-Richtung/-Höhe nachführen
   }
-  if (state.ai) for (const bd of state.ai.buildings){
+  for (const bd of aiFlat){
     if (!bd.mesh) continue;
     const [cx,cy] = aiBuildingCenter(bd);
     bd.mesh.position.y = Math.max(hAt(cx,cy), 0.02);
@@ -3076,7 +3079,8 @@ function moveUnit(u, tx, ty, sp, dt){
   return false;
 }
 function updateSoldiers(dt){
-  if (attackOrder && (!state.ai || state.ai.defeated || !state.ai.buildings.includes(attackOrder)))
+  if (attackOrder && (!attackOrder.ai || attackOrder.ai.defeated ||
+      !attackOrder.ai.buildings.includes(attackOrder)))
     attackOrder = null;
   for (const s of soldiers){
     if (s.sail) continue;                            // an Bord
@@ -4990,7 +4994,7 @@ function farFromBuildings(x,y,r){
     const c = buildingCenter(bd);
     if (dist(x,y,c[0],c[1]) < r) return false;
   }
-  if (state.ai) for (const bd of state.ai.buildings){
+  for (const bd of aiFlat){
     const c = aiBuildingCenter(bd);
     if (dist(x,y,c[0],c[1]) < r) return false;
   }
@@ -5580,9 +5584,9 @@ function enterDungeon(isleIdx){
     return false;
   }
   if (!heroAlive() || hero.sail) return false;
-  if (state.ai && !state.ai.defeated &&
-      (isleParent[isleOf(state.ai.x, state.ai.y)]||0) === isleIdx){
-    toast('🛡️ Ragnars Wachen versperren diesen Abstieg – besiege erst den Fürsten!');
+  const sperre = siegeLordOn(isleIdx);
+  if (sperre){
+    toast('🛡️ '+lordCfg(sperre).name+'s Wachen versperren diesen Abstieg – besiege erst den Fürsten!');
     return false;
   }
   if (!egoMode && !enterEgo()) return false;
@@ -5963,7 +5967,7 @@ function rollQuestOffer(giver){
   }
   if (typ==='camp'){
     const n = 3 + Math.floor(rng()*3);
-    const after = state.ai && state.ai.defeated;
+    const after = lords().length > 0 && lords().every(a=>a.defeated);
     const txts = after
       ? ['Versprengte Räuber aus Ragnars alter Bande haben ein Lager aufgeschlagen. Vertreibe sie!']
       : (giver==='buerger'
@@ -6217,8 +6221,7 @@ function findCampSpot(){
     const f = [];
     for (let i=0;i<ISLES.length;i++){
       if (i===home || used.includes(i)) continue;
-      if (state.ai && !state.ai.defeated &&
-          (isleParent[isleOf(state.ai.x, state.ai.y)]||0)===i) continue;
+      if (siegeLordOn(i)) continue;
       f.push(i);
     }
     if (f.length) p = f[(Math.random()*f.length)|0];
@@ -6728,21 +6731,82 @@ function updateSpace(dt){
   }
 }
 
-// ============================== KI-GEGNER: FÜRST RAGNAR ==============================
-const AI_NAME = 'Fürst Ragnar';
-const AI_BUILD_ORDER = ['haus','holzfaeller','farm','haus','kaserne','turm','haus','farm','turm','haus','kaserne','haus','turm','farm','haus'];
+// ============================== KI-GEGNER: DIE DREI FÜRSTEN ==============================
+// Etappe 26a: aus einem Gegner werden drei. Jeder Fürst hat eigene Basis, eigenen
+// Bau-Takt, eigene Wachen und eine eigene Fortschrittsanzeige. Besiegt ist ein Fürst
+// erst, wenn KEIN Gebäude von ihm mehr steht (Rathaus-Fall ist nur der Wendepunkt).
+const LORDS = [
+  { id:'ragnar', name:'Fürst Ragnar',  icon:'⚔️', col:0xc22a2a, css:'#e05a4a',
+    bt:[24,10], maxB:16, armyBase:4, armyPer:4, raidAge:380, rt:[210,60], raidN:4, guardBase:2,
+    order:['haus','holzfaeller','farm','haus','kaserne','turm','haus','farm','turm','haus','kaserne','haus','turm','farm','haus'] },
+  { id:'yara',   name:'Königin Yara',  icon:'👑', col:0x8a4fd6, css:'#b083ee',
+    bt:[19,8],  maxB:20, armyBase:3, armyPer:3, raidAge:540, rt:[300,60], raidN:6, guardBase:2,
+    order:['haus','farm','holzfaeller','haus','farm','haus','kaserne','farm','haus','turm','haus','farm','kaserne','haus','turm'] },
+  { id:'vex',    name:'Baron Vex',     icon:'🛡️', col:0x1fa38c, css:'#3fd0b4',
+    bt:[28,10], maxB:14, armyBase:5, armyPer:4, raidAge:720, rt:[260,60], raidN:5, guardBase:4,
+    order:['turm','haus','turm','kaserne','farm','turm','haus','turm','kaserne','holzfaeller','turm','haus','farm','turm'] },
+];
+const AI_NAME = LORDS[0].name;          // Alt-Texte (Quests) sprechen weiter von Ragnar
+const lordCfg = (ai)=> LORDS.find(l=>l.id===ai.id) || LORDS[0];
+const lords = ()=> (state && state.ais) || [];
+const liveLords = ()=> lords().filter(a=>!a.defeated);
+// Alle KI-Gebäude flach (aiOcc zeigt in diese Liste – ein Raster für alle Fürsten)
+let aiFlat = [];
 const aiGroup = new THREE.Group(); scene.add(aiGroup);
 let aiGuards = [];
 let attackOrder = null;                 // KI-Gebäude, das die Spieler-Armee angreifen soll
+let rivalT = 90;                        // Takt für die Fürsten-Rivalität (nur Flavor)
 
 function rebuildAiOcc(){
   aiOcc.fill(0);
-  if (!state.ai) return;
-  state.ai.buildings.forEach((bd,n)=>{
+  aiFlat = [];
+  for (const ai of lords()) for (const bd of ai.buildings){ bd.ai = ai; aiFlat.push(bd); }
+  aiFlat.forEach((bd,n)=>{
     const b = BT[bd.t];
     for (let j=0;j<b.h;j++) for (let i=0;i<b.w;i++)
       if (inMap(bd.x+i,bd.y+j)) aiOcc[idx(bd.x+i,bd.y+j)] = n+1;
   });
+  refreshSiegeFlags();
+}
+// Fortschritt eines Fürsten (auch für Tests/UI): Reste, Rekord, Rathaus noch da?
+function lordProgress(i){
+  const ai = lords()[i];
+  if (!ai) return null;
+  return { id:ai.id, alive:ai.buildings.length, peak:ai.peak||ai.buildings.length,
+    hq: ai.buildings.some(b=>b.t==='rathaus'), defeated:!!ai.defeated };
+}
+// Insel eines Fürsten (für Dungeon-/Quest-Sperren und die Belagerungszone)
+const lordIsle = (ai)=> isleParent[isleOf(ai.x, ai.y)] || 0;
+// Belagerungszone: Insel mit Gebäuden eines noch unbesiegten Fürsten (26a §8.2)
+function siegeLordOn(isleIdx){
+  for (const ai of lords())
+    if (!ai.defeated && ai.buildings.length && lordIsle(ai) === isleIdx) return ai;
+  return null;
+}
+// Turm/Mauer/Tor dürfen im Feindgebiet gebaut werden – aber nicht direkt ans
+// Lager heran (2 Kacheln Sicherheitsabstand, sonst könnte man das Rathaus zumauern)
+const SIEGE_MIN_D = 2;
+function siegeAllowed(t,x,y){
+  const b = BT[t];
+  if (!b || !(b.wall || b.tower)) return false;
+  if (!siegeLordOn(isleParent[isleOf(x,y)]||0)) return false;
+  for (const bd of aiFlat){
+    const bb = BT[bd.t];
+    for (let j=0;j<bb.h;j++) for (let i=0;i<bb.w;i++)
+      if (Math.abs(bd.x+i-x) <= SIEGE_MIN_D && Math.abs(bd.y+j-y) <= SIEGE_MIN_D) return false;
+  }
+  return true;
+}
+const isSiegeBuilding = (bd)=> !!bd.siege && !!(BT[bd.t].wall || BT[bd.t].tower);
+// Belagerungs-Markierung nachziehen (nach jeder Änderung an den Fürsten-Basen)
+function refreshSiegeFlags(){
+  if (!state || !state.buildings) return;
+  for (const bd of state.buildings){
+    const b = BT[bd.t];
+    if (!(b.wall || b.tower)){ delete bd.siege; continue; }
+    const on = siegeLordOn(isleParent[isleOf(bd.x, bd.y)]||0);
+    if (on && !inSettlement(bd.x, bd.y)) bd.siege = 1; else delete bd.siege;
+  }
 }
 function canPlaceAi(t,x,y){
   const b = BT[t];
@@ -6754,18 +6818,20 @@ function canPlaceAi(t,x,y){
   }
   return true;
 }
-function addAiBuilding(t,x,y,hp,noAnim){
-  const bd = { t, x, y, hp: hp!==undefined?hp:BT[t].hp };
-  state.ai.buildings.push(bd);
+function addAiBuilding(ai,t,x,y,hp,noAnim){
+  const bd = { t, x, y, hp: hp!==undefined?hp:BT[t].hp, ai };
+  ai.buildings.push(bd);
+  ai.peak = Math.max(ai.peak||0, ai.buildings.length);
   rebuildAiOcc();
   const b = BT[t];
   const [cx,cy] = [x+(b.w-1)/2, y+(b.h-1)/2];
   const g = makeBuilding(t);
-  // rote Standarte als Feindmarkierung
+  // Standarte in der Banner-Farbe des Fürsten als Feindmarkierung
   const mk = new THREE.Group(); mk.name = 'aimark';
   const y2 = (PENNANT_Y[t]||2.2) + 0.5;
   mk.add(cyl(0.025,0.025,0.8, M.timber, -0.5, y2-0.8, -0.5, 5));
-  const fl = mesh(new THREE.PlaneGeometry(0.5,0.28), std(0xc22a2a,{side:THREE.DoubleSide}), false, false);
+  const fl = mesh(new THREE.PlaneGeometry(0.5,0.28),
+    std(lordCfg(ai).col,{side:THREE.DoubleSide}), false, false);
   fl.position.set(-0.5+0.26, y2-0.16, -0.5);
   mk.add(fl);
   g.add(mk);
@@ -6777,8 +6843,7 @@ function addAiBuilding(t,x,y,hp,noAnim){
 }
 function aiBuildingCenter(bd){ const b = BT[bd.t]; return [bd.x+(b.w-1)/2, bd.y+(b.h-1)/2]; }
 // Freien Platz nahe der KI-Basis suchen (Spirale)
-function findAiSpot(t){
-  const ai = state.ai;
+function findAiSpot(ai,t){
   for (let r=1;r<=8;r++){
     for (let dy=-r;dy<=r;dy++) for (let dx=-r;dx<=r;dx++){
       if (Math.max(Math.abs(dx),Math.abs(dy)) !== r) continue;
@@ -6788,9 +6853,9 @@ function findAiSpot(t){
   }
   return null;
 }
-function createAi(){
-  // Basis suchen: bevorzugt auf einer MITTLEREN Insel, nie auf der Heimatinsel
-  // (Failsafe 2. Durchlauf: falls anderswo kein Platz ist, doch die Heimatinsel)
+// Basis für EINEN Fürsten suchen: bevorzugt auf einer mittleren Insel, nie auf der
+// Heimatinsel und nie auf einer Insel, die schon ein anderer Fürst belegt.
+function createLord(cfg, taken){
   let best = null, bestScore = -1;
   const pi = playerIsle();
   for (let pass=0; pass<2 && !best; pass++){
@@ -6798,26 +6863,51 @@ function createAi(){
       if (!canPlaceAi('rathaus',x-1,y-1)) continue;
       const d = dist(x,y,SX,SY);
       if (d < 16) continue;
-      const id = isleOf(x,y);
+      const id = isleOf(x,y), par = isleParent[id]||0;
+      if (taken && taken.includes(par)) continue;     // eine Insel je Fürst
       if (pass===0 && id === pi) continue;
       let free = 0;
       for (let dy=-4;dy<=4;dy++) for (let dx=-4;dx<=4;dx++)
         if (inMap(x+dx,y+dy) && tiles[idx(x+dx,y+dy)]===2 && !treeMap[idx(x+dx,y+dy)] && !rockMap[idx(x+dx,y+dy)]) free++;
       let score = free + d*0.5;
-      const P = ISLES[isleParent[id]];
+      const P = ISLES[par];
       if (P && P.cls==='mittel') score += 120;   // mittlere Inseln klar bevorzugt
       if (id !== pi) score += 80;
       if (score > bestScore){ bestScore = score; best = [x,y]; }
     }
   }
-  if (!best) return;                     // keine Fläche gefunden – KI entfällt auf dieser Karte
-  state.ai = { x:best[0], y:best[1], buildings:[], nextBuild:0, army:0, age:0,
-    bt:20, tt:35, rt:0, gt:10, defeated:false };
-  addAiBuilding('rathaus', best[0]-1, best[1]-1, undefined, true);
-  toast('⚠️ ' + AI_NAME + ' hat sich auf der Insel niedergelassen – vernichte sein rotes Rathaus!', 5000);
+  if (!best) return null;                // keine Fläche gefunden – Fürst entfällt hier
+  const ai = { id:cfg.id, x:best[0], y:best[1], buildings:[], nextBuild:0, army:0, age:0,
+    bt:20, tt:35, rt:0, gt:10, defeated:false, rebuilt:0, peak:0, fallen:false, colony:null };
+  state.ais.push(ai);
+  addAiBuilding(ai, 'rathaus', best[0]-1, best[1]-1, undefined, true);
+  return ai;
+}
+// Alle Fürsten für ein frisches Spiel platzieren (gestaffelte Schonfristen via cfg)
+function createAllLords(){
+  if (!state.ais) state.ais = [];
+  const taken = [];
+  for (const cfg of LORDS){
+    const ai = createLord(cfg, taken);
+    if (ai) taken.push(lordIsle(ai));
+  }
+  if (state.ais.length)
+    toast('⚠️ ' + state.ais.map(a=>lordCfg(a).icon+' '+lordCfg(a).name).join(', ') +
+      ' herrschen über die Nachbarinseln – reiße ihre Reiche nieder!', 6000);
+}
+// Ein Fürst zieht später ein (Alt-Spielstände, 26a-Migration)
+function addLateLord(cfg){
+  const taken = lords().map(lordIsle);
+  const ai = createLord(cfg, taken);
+  if (!ai) return null;
+  chronicleAdd('kampf', cfg.icon+' '+cfg.name+' ist auf einer Nachbarinsel gelandet.');
+  toast(cfg.icon+' '+cfg.name+' hat sich auf einer Nachbarinsel niedergelassen!', 6000);
+  snd(120,0.4,'sawtooth',0.05);
+  return ai;
 }
 function destroyAiBuilding(bd){
-  const ai = state.ai;
+  const ai = bd.ai || lords().find(a=>a.buildings.includes(bd));
+  if (!ai) return;
   const i = ai.buildings.indexOf(bd);
   if (i<0) return;
   ai.buildings.splice(i,1);
@@ -6827,53 +6917,83 @@ function destroyAiBuilding(bd){
   spawnBurst(wx(cx), hAt(cx,cy)+0.6, wz(cy), 12, 0xff8a5a);
   snd(90,0.35,'sawtooth',0.06);
   if (attackOrder===bd) attackOrder = null;
-  if (bd.t==='rathaus') aiDefeated();
-  else {
-    // Plündern: ~40% der Baukosten als Beute
-    const loot = {};
-    for (const k in BT[bd.t].cost) loot[k] = Math.max(1, Math.round(BT[bd.t].cost[k]*0.4));
-    addLoot(loot);
-    toast('💥 Feindliches Gebäude zerstört und geplündert!');
-  }
+  const cfg = lordCfg(ai);
+  // Plündern: ~40 % der Baukosten (das Rathaus hat keine Kosten → Fixbeute)
+  const loot = {};
+  for (const k in (BT[bd.t].cost||{})) loot[k] = Math.max(1, Math.round(BT[bd.t].cost[k]*0.4));
+  if (bd.t==='rathaus') loot.gold = (loot.gold||0) + 120;
+  addLoot(loot);
+  if (bd.t==='rathaus'){
+    // 26a: Der Rathaus-Fall ist der WENDEPUNKT, nicht der Sieg. Der Fürst stellt
+    // Bauen, Nachschub und Überfälle ein – seine Wachen kämpfen weiter.
+    ai.fallen = true;
+    chronicleAdd('kampf', '💥 '+cfg.name+'s Rathaus liegt in Trümmern – sein Reich zerfällt.');
+    toast('💥 '+cfg.icon+' '+cfg.name+'s Rathaus liegt in Trümmern – sein Reich zerfällt! '+
+      'Noch '+ai.buildings.length+' Gebäude, dann ist er besiegt.', 6000);
+  } else toast('💥 Gebäude von '+cfg.name+' zerstört und geplündert – noch '+
+    ai.buildings.length+' übrig.');
+  if (!ai.buildings.length) lordDefeated(ai);
 }
-function aiDefeated(){
-  const ai = state.ai;
+// Teil-Sieg: ALLE Gebäude eines Fürsten sind zerstört
+function lordDefeated(ai){
+  if (ai.defeated) return;
   ai.defeated = true;
-  if (egoMode) exitEgo();                // Sieg erzwingt die Stadtansicht
-  for (const bd of [...ai.buildings]) {
-    if (bd.mesh){ aiGroup.remove(bd.mesh); disposeGroup(bd.mesh); }
-    const [cx,cy] = aiBuildingCenter(bd);
-    spawnBurst(wx(cx), hAt(cx,cy)+0.6, wz(cy), 8, 0xff8a5a);
-  }
   ai.buildings = [];
   rebuildAiOcc();
-  for (const g of aiGuards) removeUnit(g);
-  aiGuards = [];
-  attackOrder = null;
-  state.res.gold += 400;
-  chronicleAdd('sieg', '🏆 '+AI_NAME+' wurde vernichtend geschlagen – das Reich ist unangefochten.');
-  toast('🏆 SIEG! Du hast ' + AI_NAME + ' vernichtet! +400 🪙', 6000);
+  for (const g of aiGuards.filter(g=>g.ai===ai)) removeUnit(g);
+  aiGuards = aiGuards.filter(g=>g.ai!==ai);
+  if (attackOrder && attackOrder.ai===ai) attackOrder = null;
+  const cfg = lordCfg(ai);
+  // Belohnung: 600 Gold + 150 der höchsten freigeschalteten Epochen-Ressource
+  state.res.gold += 600;
+  const L = rathausLvl();
+  const bonusRes = L>=26 ? 'lithium' : L>=16 ? 'oel' : L>=11 ? 'stahl' : 'eisen';
+  state.res[bonusRes] = (state.res[bonusRes]||0) + 150;
+  chronicleAdd('sieg', '🏆 '+cfg.name+' ist besiegt – kein Stein seines Reiches steht mehr.');
+  toast('🏆 '+cfg.icon+' '+cfg.name+' ist besiegt! +600 🪙 +150 '+COSTICON[bonusRes], 6000);
   snd(523,0.2,'triangle',0.06); snd(659,0.2,'triangle',0.06); snd(784,0.3,'triangle',0.06);
+  checkAllLordsDefeated();
   save();
 }
-function spawnAiGuard(){
-  const ai = state.ai;
-  const a = Math.random()*Math.PI*2;
+// Gesamtsieg (26a-Fassung: Chronik + Toast; das große Overlay folgt in 26c)
+function checkAllLordsDefeated(){
+  const all = lords();
+  if (!all.length || all.some(a=>!a.defeated)) return;
+  if (state.lordsWon) return;
+  state.lordsWon = 1;
+  if (egoMode) exitEgo();
+  chronicleAdd('sieg', '🏆 Alle Fürsten sind geschlagen – das Reich ist unangefochten.');
+  toast('🏆 Alle Fürsten sind geschlagen! Die Inselwelt gehört dir.', 7000);
+  snd(523,0.25,'triangle',0.07); snd(659,0.25,'triangle',0.07); snd(880,0.4,'triangle',0.07);
+}
+// Epochen-Skalierung der KI-Kämpfer (die Fürsten sollen bis Stufe 35 relevant bleiben)
+function aiEraIdx(){
+  const L = rathausLvl();
+  let n = 0; for (let i=0;i<ERAS.length;i++) if (L>=ERAS[i].min) n = i;
+  return n;
+}
+function spawnAiGuard(ai){
+  const cfg = lordCfg(ai), ei = aiEraIdx();
+  const a = Math.random()*Math.PI*2, hp = Math.round(85*(1+0.30*ei));
   const g = { x: clamp(ai.x+Math.cos(a)*2.5,1,MAP-2), y: clamp(ai.y+Math.sin(a)*2.5,1,MAP-2),
-    hp:80, maxhp:80, cd:0, ph:Math.random()*7, dir:0, moving:false, hostile:true,
+    hp, maxhp:hp, cd:0, ph:Math.random()*7, dir:0, moving:false, hostile:true, ai,
+    dmg: Math.round(10*(1+0.20*ei)), col:cfg.col,
     mesh: makePerson('aisoldier') };
   if (!walkable(g.x,g.y,true)){ g.x = ai.x; g.y = ai.y+2; }
   aiGuards.push(g);
 }
-function spawnAiRaid(n){
-  const ai = state.ai;
+function spawnAiRaid(ai,n){
+  if (typeof ai === 'number'){ n = ai; ai = null; }   // Kurzform spawnAiRaid(n) aus Tests
+  ai = ai || liveLords()[0] || lords()[0];
+  if (!ai) return;
+  const cfg = lordCfg(ai), ei = aiEraIdx();
   const crossSea = isleOf(ai.x,ai.y) !== playerIsle();
   for (let i=0;i<n;i++){
-    const hp = 85, e = {
+    const hp = Math.round(85*(1+0.30*ei)), e = {
       x: clamp(ai.x+(Math.random()-0.5)*4,1,MAP-2),
       y: clamp(ai.y+(Math.random()-0.5)*4,1,MAP-2),
-      hp, maxhp:hp, cd:0, ph:Math.random()*7, dir:0, moving:true, kind:'ai', hostile:true,
-      dmg: 11, speed: 1.35, mesh: makePerson('aisoldier') };
+      hp, maxhp:hp, cd:0, ph:Math.random()*7, dir:0, moving:true, kind:'ai', hostile:true, ai,
+      dmg: Math.round(11*(1+0.20*ei)), speed: 1.35, col:cfg.col, mesh: makePerson('aisoldier') };
     if (!walkable(e.x,e.y,true)){ e.x = ai.x; e.y = ai.y; }
     enemies.push(e);
     if (crossSea){
@@ -6883,43 +7003,57 @@ function spawnAiRaid(n){
     }
   }
   toast(crossSea
-    ? '⛵ ' + AI_NAME + ' schickt ' + n + ' Krieger per Schiff gegen dein Dorf!'
-    : '🔥 ' + AI_NAME + ' schickt ' + n + ' Krieger gegen dein Dorf!', 4000);
+    ? '⛵ ' + cfg.icon+' '+cfg.name + ' schickt ' + n + ' Krieger per Schiff gegen dein Dorf!'
+    : '🔥 ' + cfg.icon+' '+cfg.name + ' schickt ' + n + ' Krieger gegen dein Dorf!', 4000);
   snd(120,0.5,'sawtooth',0.06);
 }
-function updateAI(dt){
-  const ai = state.ai;
-  if (!ai || ai.defeated) return;
+// Todeskampf: Rathaus gefallen ODER weniger als 20 % des Rekordbestands übrig →
+// kein Wiederaufbau, keine Truppen, keine Überfälle mehr. Das Ende bleibt knackig.
+function lordBroken(ai){
+  return ai.fallen || ai.buildings.length < (ai.peak||0)*0.2;
+}
+function updateLord(ai, dt){
+  if (ai.defeated) return;
+  const cfg = lordCfg(ai);
   ai.age += dt;
-  // Bauen
+  const broken = lordBroken(ai);
+  // Bauen (Wiederaufbau nur mit Rathaus und nur bis zum Budget von 8 Gebäuden)
   ai.bt -= dt;
   if (ai.bt <= 0){
-    ai.bt = 24 + Math.random()*10;
-    const t = AI_BUILD_ORDER[ai.nextBuild % AI_BUILD_ORDER.length];
-    const spot = findAiSpot(t);
-    if (spot) addAiBuilding(t, spot[0], spot[1]);
-    ai.nextBuild++;
+    ai.bt = cfg.bt[0] + Math.random()*cfg.bt[1];
+    if (!broken && ai.buildings.length < cfg.maxB){
+      const rebuild = ai.buildings.length < (ai.peak||0);
+      if (!rebuild || (ai.rebuilt||0) < 8){
+        const t = cfg.order[ai.nextBuild % cfg.order.length];
+        const spot = findAiSpot(ai,t);
+        if (spot){
+          addAiBuilding(ai, t, spot[0], spot[1]);
+          if (rebuild) ai.rebuilt = (ai.rebuilt||0) + 1;
+        }
+        ai.nextBuild++;
+      }
+    }
   }
   // Truppen ansammeln
   ai.tt -= dt;
   if (ai.tt <= 0){
     ai.tt = 30;
     const kasernen = ai.buildings.filter(b=>b.t==='kaserne').length;
-    if (ai.army < 4 + kasernen*4) ai.army++;
+    if (!broken && ai.army < cfg.armyBase + kasernen*cfg.armyPer) ai.army++;
   }
   // Wachen nachrücken
   ai.gt -= dt;
   if (ai.gt <= 0){
     ai.gt = 40;
-    const cap = 2 + ai.buildings.filter(b=>b.t==='turm').length;
-    if (aiGuards.length < cap) spawnAiGuard();
+    const cap = cfg.guardBase + ai.buildings.filter(b=>b.t==='turm').length;
+    if (ai.buildings.length && aiGuards.filter(g=>g.ai===ai).length < cap) spawnAiGuard(ai);
   }
-  // Überfälle (erst nach Schonfrist)
+  // Überfälle (erst nach Schonfrist, nie im Todeskampf)
   ai.rt -= dt;
-  if (ai.age > 380 && ai.rt <= 0){
-    ai.rt = 210 + Math.random()*60;
-    const n = Math.min(ai.army, 3 + Math.floor(ai.buildings.length/4));
-    if (n >= 2){ ai.army -= n; spawnAiRaid(n); }
+  if (!broken && ai.age > cfg.raidAge && ai.rt <= 0){
+    ai.rt = cfg.rt[0] + Math.random()*cfg.rt[1];
+    const n = Math.min(ai.army, 2 + Math.floor(ai.buildings.length/cfg.raidN));
+    if (n >= 2){ ai.army -= n; spawnAiRaid(ai, n); }
   }
   // Gebäude-Popanimation
   for (const bd of ai.buildings){
@@ -6931,24 +7065,66 @@ function updateAI(dt){
     }
   }
 }
+function updateAI(dt){
+  for (const ai of lords()) updateLord(ai, dt);
+  // Nachzügler-Fürsten aus Alt-Spielständen ziehen nach und nach ein
+  if (state.newLordT > 0){
+    state.newLordT -= dt;
+    if (state.newLordT <= 0){
+      const fehlt = LORDS.find(c=>!lords().some(a=>a.id===c.id));
+      if (fehlt){
+        addLateLord(fehlt);
+        state.newLordT = LORDS.some(c=>!lords().some(a=>a.id===c.id)) ? 600 : 0;
+      } else state.newLordT = 0;
+      save();
+    }
+  }
+  // Rivalität: reines Flavor mit kleinem echten Effekt (Raid verspätet sich)
+  rivalT -= dt;
+  if (rivalT <= 0){
+    rivalT = 150 + Math.random()*120;
+    const live = liveLords().filter(a=>!lordBroken(a));
+    if (live.length >= 2 && Math.random() < 0.25){
+      const a = live[(Math.random()*live.length)|0];
+      let b = live[(Math.random()*live.length)|0];
+      if (b === a) b = live[(live.indexOf(a)+1) % live.length];
+      a.rt += 60;
+      toast(lordCfg(a).icon+' '+lordCfg(a).name+' und '+lordCfg(b).icon+' '+lordCfg(b).name+
+        ' liegen im Streit – der nächste Überfall verspätet sich.', 4200);
+    }
+  }
+}
 function updateAiGuards(dt){
-  const ai = state.ai;
-  if (!ai) return;
   for (const g of aiGuards){
+    const ai = g.ai || lords()[0];
+    if (!ai) continue;
     if (g.staggerT > 0){ g.staggerT -= dt; g.moving = false; continue; }   // 24f: Stagger
     g.cd = Math.max(0, g.cd-dt);
-    let best = null, bd2 = 1e9;
+    let best = null, bd2 = 1e9, isUnit = true;
     for (const s of soldiers){ const d = dist(g.x,g.y,s.x,s.y); if (d<bd2){bd2=d;best=s;} }
     if (heroAlive() && !hero.sail && !dungeon){   // im Dungeon ist der Held „nicht da“
       const d = dist(g.x,g.y,hero.x,hero.y);
       if (d<bd2){ bd2=d; best=hero; }
     }
+    // 26a §8.2: Belagerungs-Bauten im eigenen Revier werden aktiv niedergerissen –
+    // Spieler-Einheiten haben Vorrang, Bauten sind das Ziel danach.
+    if (!best){
+      for (const bd of state.buildings){
+        if (bd.ruin || !isSiegeBuilding(bd)) continue;
+        const c = buildingCenter(bd);
+        const d = dist(g.x,g.y,c[0],c[1]);
+        if (d<bd2){ bd2=d; best=bd; isUnit=false; }
+      }
+    }
     const baseD = dist(g.x,g.y,ai.x,ai.y);
-    if (best && bd2 < 7 && baseD < 11){
-      if (bd2 > 0.75){ g.moving = true; steer(g, best.x, best.y, 1.5, dt); }
+    if (best && bd2 < (isUnit ? 7 : 9) && baseD < 13){
+      const tc = isUnit ? [best.x,best.y] : buildingCenter(best);
+      const reach = isUnit ? 0.75 : (BT[best.t].w-1)*0.7 + 0.95;
+      if (bd2 > reach){ g.moving = true; steer(g, tc[0], tc[1], 1.5, dt); }
       else { g.moving = false;
-        if (g.cd<=0){ g.cd = 0.9; best.hp -= 10;
-          spawnBurst(wx(best.x), hAt(best.x,best.y)+0.5, wz(best.y), 3, 0xffd27a); } }
+        if (g.cd<=0){ g.cd = 0.9; best.hp -= (g.dmg||10);
+          spawnBurst(wx(tc[0]), hAt(tc[0],tc[1])+0.5, wz(tc[1]), 3, 0xffd27a);
+          if (!isUnit && best.hp<=0) destroyBuilding(best); } }
     } else if (baseD > 3.5){ g.moving = true; steer(g, ai.x, ai.y, 1.2, dt); }
     else g.moving = false;
   }
@@ -6960,10 +7136,14 @@ function updateAiGuards(dt){
   });
 }
 function showAiInfo(bd){
-  $('ipName').textContent = '🔴 ' + BT[bd.t].name + ' – ' + AI_NAME;
-  $('ipDesc').textContent = bd.t==='rathaus'
-    ? 'Das feindliche Hauptquartier – zerstöre es, um zu siegen!'
-    : 'Feindliches Gebäude von ' + AI_NAME + '.';
+  const ai = bd.ai || lords()[0], cfg = lordCfg(ai);
+  const rest = ai ? ai.buildings.length : 1;
+  $('ipName').textContent = cfg.icon + ' ' + BT[bd.t].name + ' – ' + cfg.name;
+  $('ipDesc').textContent = (bd.t==='rathaus'
+    ? 'Das Hauptquartier von '+cfg.name+' – fällt es, zerfällt sein Reich (baut und '+
+      'überfällt nicht mehr). Besiegt ist er aber erst ohne jedes Gebäude. '
+    : 'Feindliches Gebäude von ' + cfg.name + '. ') +
+    'Noch ' + rest + ' Gebäude, dann ist ' + cfg.name + ' besiegt.';
   $('ipStats').textContent = '❤️ ' + Math.ceil(bd.hp) + '/' + BT[bd.t].hp;
   const btns = $('ipBtns'); btns.innerHTML = '';
   const ab = document.createElement('button');
@@ -6975,7 +7155,7 @@ function showAiInfo(bd){
     ab.addEventListener('click', ()=>{
       if (!soldiers.length){ toast('Du hast keine Armee – bilde Soldaten in der Kaserne aus!'); return; }
       attackOrder = bd;
-      toast('⚔️ Deine Armee marschiert auf ' + AI_NAME + '!');
+      toast('⚔️ Deine Armee marschiert auf ' + cfg.name + '!');
       snd(200,0.2,'square',0.05); hideInfo();
     });
   }
@@ -7388,6 +7568,7 @@ function updateAuras(dt){
     const c = buildingCenter(hq), rate = 1.5*lvlOf(hq);
     for (const bd of state.buildings){
       if (bd.ruin || !(BT[bd.t].wall || BT[bd.t].tower)) continue;
+      if (isSiegeBuilding(bd)) continue;      // 26a §8.2: Belagerung bleibt Risiko
       const mh = maxHp(bd);
       if (bd.hp >= mh) continue;
       const bc = buildingCenter(bd);
@@ -7693,13 +7874,24 @@ function placingHint(t,x,y){
   if (b.terra || b.vorp) return null;
   if (b.hq && state.buildings.some(x=>x.t==='hq'))
     return '🎖️ Es kann nur ein Verteidigungs-HQ geben.';
-  let tilesFree = true, settle = true;
+  let tilesFree = true, settle = true, siegeZone = false, tooClose = false;
   for (let j=0;j<b.h;j++) for (let i=0;i<b.w;i++){
     const px=x+i, py=y+j;
     if (!inMap(px,py)){ tilesFree = false; continue; }
     const k = idx(px,py);
     if (tiles[k]!==2 || occ[k] || aiOcc[k] || treeMap[k] || rockMap[k]) tilesFree = false;
     if (!inSettlement(px,py)) settle = false;
+    if (siegeLordOn(isleParent[isleOf(px,py)]||0)){
+      siegeZone = true;
+      if (!siegeAllowed(t,px,py)) tooClose = true;
+    }
+  }
+  // 26a §8.2: Feindgebiet erklärt sich selbst – Belagerungs-Bau oder Abstandsregel
+  if (tilesFree && !settle && siegeZone){
+    if (!(b.wall || b.tower))
+      return '⚔️ Feindgebiet: Hier sind nur Belagerungs-Bauten erlaubt (Turm, Mauer, Tor).';
+    if (tooClose)
+      return '⚔️ Zu nah am Feindlager – halte '+SIEGE_MIN_D+' Kacheln Abstand zu seinen Gebäuden.';
   }
   if (tilesFree && !settle)
     return '🏘️ Außerhalb deines Siedlungsgebiets – näher an Rathaus oder Vorposten bauen!';
@@ -7809,8 +8001,8 @@ function handleTap(sx,sy){
   if (occ[k]){
     selected = { kind:'building', bd: state.buildings[occ[k]-1] };
     showBuildingInfo(selected.bd); showSelQuads(selected.bd); snd(520,0.06,'sine',0.03);
-  } else if (aiOcc[k] && state.ai){
-    selected = { kind:'ai', bd: state.ai.buildings[aiOcc[k]-1] };
+  } else if (aiOcc[k] && aiFlat[aiOcc[k]-1]){
+    selected = { kind:'ai', bd: aiFlat[aiOcc[k]-1] };
     showAiInfo(selected.bd); hideSelQuads(); snd(380,0.06,'sine',0.03);
   } else if (treeMap[k]){
     selected = { kind:'tree', x:tx, y:ty };
@@ -8273,6 +8465,10 @@ function updateEnemyArrow(){
   const sx = clamp((nx*0.5+0.5)*W, m, W-m);
   const sy = clamp((1-(ny*0.5+0.5))*H, 120, H-150);
   const ang = Math.atan2(sy - H/2, sx - W/2);
+  // 26a: Der Pfeil trägt die Banner-Farbe des angreifenden Fürsten
+  const cs = best.ai ? lordCfg(best.ai).css : '#ff5a4e';
+  arrowEl.style.color = cs;
+  arrowEl.style.textShadow = '0 0 8px '+cs+'cc,0 2px 4px rgba(0,0,0,.6)';
   arrowEl.style.display = 'block';
   arrowEl.style.left = sx+'px'; arrowEl.style.top = sy+'px';
   arrowEl.style.transform = 'translate(-50%,-50%) rotate('+ang+'rad)';
@@ -8484,11 +8680,23 @@ function adminWaveEnd(){
   toast('🛠️ Welle beendet – Gegner geräumt, Timer zurückgesetzt.');
   save();
 }
-function adminDefeatRagnar(){
-  if (!state || !state.ai){ toast('🛠️ Kein Ragnar auf dieser Karte.'); return; }
-  if (state.ai.defeated){ toast('🛠️ Ragnar ist bereits besiegt.'); return; }
-  aiDefeated();                          // regulärer Sieg-Pfad (Chronik, Belohnung, Aufräumen)
+// 26a: Ein bestimmter Fürst (Index) bzw. ohne Argument der erste noch lebende.
+// Läuft über den regulären Sieg-Pfad (Chronik, Belohnung, Aufräumen, Gesamtsieg).
+function adminDefeatRagnar(i){
+  const all = lords();
+  if (!all.length){ toast('🛠️ Keine Fürsten auf dieser Karte.'); return; }
+  const ai = (i===undefined) ? all.find(a=>!a.defeated) : all[i];
+  if (!ai){ toast('🛠️ Dieser Fürst existiert nicht.'); return; }
+  if (ai.defeated){ toast('🛠️ '+lordCfg(ai).name+' ist bereits besiegt.'); return; }
+  for (const bd of [...ai.buildings]){
+    if (bd.mesh){ aiGroup.remove(bd.mesh); disposeGroup(bd.mesh); }
+    const [cx,cy] = aiBuildingCenter(bd);
+    spawnBurst(wx(cx), hAt(cx,cy)+0.6, wz(cy), 8, 0xff8a5a);
+  }
+  ai.buildings = [];
+  lordDefeated(ai);
 }
+function adminDefeatAllLords(){ for (let i=0;i<lords().length;i++) adminDefeatRagnar(i); }
 // Entscheidung (dokumentiert): max = 10 UNABHÄNGIG vom Epochen-Deckel (heroSkillCap),
 // damit Endgame-Tests ohne vorherigen Rathaus-Ausbau möglich sind.
 function adminSkillsMax(){
@@ -8624,7 +8832,20 @@ function buildAdminList(){
   g = grid();
   btn(g, '🗡️ Welle jetzt', adminWaveNow);
   btn(g, '🏳️ Welle beenden', adminWaveEnd);
-  btn(g, '🏆 Ragnar besiegen', adminDefeatRagnar);
+  // 26a: je Fürst ein Knopf + Sammelknopf für den Gesamtsieg-Test
+  for (let i=0;i<lords().length;i++){
+    const ai = lords()[i], cfg = lordCfg(ai);
+    btn(g, (ai.defeated ? '✓ ' : '🏆 ') + cfg.name + ' besiegen',
+      ()=>{ adminDefeatRagnar(i); openAdminSheet(); }, ai.defeated);
+  }
+  btn(g, '🏁 Alle Fürsten besiegen', ()=>{ adminDefeatAllLords(); openAdminSheet(); });
+  btn(g, '💥 Fürsten-Rathäuser sprengen', ()=>{
+    for (const ai of lords()){
+      const hq2 = ai.buildings.find(b=>b.t==='rathaus');
+      if (hq2) destroyAiBuilding(hq2);
+    }
+    openAdminSheet();
+  });
   const god = btn(g, '🛡️ Gottmodus Held: '+(ADMIN.god?'AN':'aus'), ()=>{
     ADMIN.god = !ADMIN.god;
     god.classList.toggle('on', ADMIN.god);
@@ -8711,11 +8932,14 @@ function drawMinimap(){
   g.drawImage(off, 0, 0, cvm.width, cvm.height);
   // Marker (Stand beim Öffnen)
   const dot = (x,y,col,s)=>{ g.fillStyle = col; g.fillRect((x+0.5)*S-s/2, (y+0.5)*S-s/2, s, s); };
-  if (state.ai && !state.ai.defeated)
-    for (const bd of state.ai.buildings){
+  for (const ai of lords()){
+    if (ai.defeated) continue;
+    const cs = lordCfg(ai).css;
+    for (const bd of ai.buildings){
       const c2 = aiBuildingCenter(bd);
-      dot(c2[0], c2[1], '#ff4438', bd.t==='rathaus' ? 9 : 5);
+      dot(c2[0], c2[1], cs, bd.t==='rathaus' ? 9 : 5);
     }
+  }
   for (const bd of state.buildings){
     const c2 = buildingCenter(bd);
     dot(c2[0], c2[1], bd.t==='rathaus' ? '#ffce3a' : (bd.t==='vorposten' ? '#4ade6a' : '#f2f5fa'),
@@ -8748,9 +8972,54 @@ function drawMinimap(){
   g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2;
   g.strokeRect((ctx0-half)*S, (cty0-half)*S, half*2*S, half*2*S);
 }
+// 26a: Fortschritt je Fürst unter der Karte – Rest/Rekord, Tippen springt zur Basis
+function drawLordList(){
+  const box = $('lordList');
+  if (!box) return;
+  box.innerHTML = '';
+  const all = lords();
+  if (!all.length) return;
+  for (let i=0;i<all.length;i++){
+    const ai = all[i], cfg = lordCfg(ai);
+    const row = document.createElement('div');
+    row.className = 'lord-row' + (ai.defeated ? ' done' : '');
+    const dot = document.createElement('span');
+    dot.className = 'lord-dot';
+    dot.style.background = ai.defeated ? '#5c6a80' : cfg.css;
+    row.appendChild(dot);
+    const nm = document.createElement('span');
+    nm.textContent = cfg.icon + ' ' + cfg.name;
+    row.appendChild(nm);
+    if (ai.defeated){
+      const d = document.createElement('span');
+      d.className = 'lord-n'; d.textContent = '✓ besiegt';
+      row.appendChild(d);
+    } else {
+      const peak = Math.max(1, ai.peak||ai.buildings.length);
+      const bar = document.createElement('span');
+      bar.className = 'lord-bar';
+      const fill = document.createElement('i');
+      fill.style.width = Math.round(ai.buildings.length/peak*100) + '%';
+      fill.style.background = cfg.css;
+      bar.appendChild(fill);
+      row.appendChild(bar);
+      const n = document.createElement('span');
+      n.className = 'lord-n';
+      n.textContent = ai.buildings.length + '/' + peak + (ai.fallen ? ' 💥' : '');
+      row.appendChild(n);
+      row.addEventListener('click', ()=>{
+        cam.tx = wx(ai.x); cam.tz = wz(ai.y); clampCam();
+        $('mapOv').style.display = 'none';
+        snd(520,0.06,'sine',0.03);
+      });
+    }
+    box.appendChild(row);
+  }
+}
 function openMap(){
   if (!state || !tiles) return;
   drawMinimap();
+  drawLordList();
   $('mapOv').style.display = 'flex';
 }
 $('btnMap').addEventListener('click', openMap);
@@ -8882,9 +9151,12 @@ function save(){
       units: soldiers.map(s=>s.kind||'soldier'),
       spaceN: spaceMissions.length,
       doctrine: state.doctrine, muted: state.muted, time: state.time,
-      ai: state.ai ? { x:state.ai.x, y:state.ai.y, nextBuild:state.ai.nextBuild,
-        army:state.ai.army, age:Math.round(state.ai.age), defeated:state.ai.defeated,
-        buildings: state.ai.buildings.map(b=>({t:b.t,x:b.x,y:b.y,hp:b.hp})) } : null,
+      // 26a: Die drei Fürsten (Feld `ai` wird nicht mehr geschrieben, aber gelesen)
+      ais: lords().map(a=>({ id:a.id, x:a.x, y:a.y, nextBuild:a.nextBuild,
+        army:a.army, age:Math.round(a.age), defeated:a.defeated, fallen:!!a.fallen,
+        rebuilt:a.rebuilt||0, peak:a.peak||a.buildings.length, colony:a.colony||null,
+        buildings: a.buildings.map(b=>({t:b.t,x:b.x,y:b.y,hp:b.hp})) })),
+      newLordT: state.newLordT||0, lordsWon: state.lordsWon||0,
       exped: expeditions.map(e=>({x:e.destX, y:e.destY})),
       planets: state.planets,
       chronicle: state.chronicle||[],
@@ -9028,12 +9300,24 @@ function load(){
       if (spot) addBuilding('vorposten', spot[0], spot[1], undefined, true);
     }
     // KI wiederherstellen
-    if (d.ai){
-      state.ai = { x:d.ai.x, y:d.ai.y, buildings:[], nextBuild:d.ai.nextBuild||0,
-        army:d.ai.army||0, age:d.ai.age||0, bt:24, tt:30, rt:60, gt:15,
-        defeated:!!d.ai.defeated };
-      for (const b of (d.ai.buildings||[])) addAiBuilding(b.t, b.x, b.y, b.hp, true);
+    // 26a: `ais` ist das neue Format; ein Alt-Stand mit einzelnem `ai` wird zu Ragnar.
+    const roh = d.ais || (d.ai ? [Object.assign({ id:'ragnar' }, d.ai)] : []);
+    state.ais = [];
+    for (const a of roh){
+      if (!LORDS.some(c=>c.id===a.id)) continue;
+      const ai = { id:a.id, x:a.x, y:a.y, buildings:[], nextBuild:a.nextBuild||0,
+        army:a.army||0, age:a.age||0, bt:24, tt:30, rt:60, gt:15,
+        defeated:!!a.defeated, fallen:!!a.fallen, rebuilt:a.rebuilt||0,
+        peak:a.peak||(a.buildings||[]).length, colony:a.colony||null };
+      state.ais.push(ai);
+      for (const b of (a.buildings||[])) addAiBuilding(ai, b.t, b.x, b.y, b.hp, true);
+      if (!a.fallen && !ai.buildings.some(b=>b.t==='rathaus') && ai.buildings.length)
+        ai.fallen = true;                 // Alt-Stand ohne Rathaus: Reich zerfällt bereits
     }
+    // Fehlende Fürsten ziehen nach dem Laden nach (Alt-Stände bekommen ihr Endgame)
+    state.newLordT = d.newLordT !== undefined ? d.newLordT
+      : (LORDS.some(c=>!state.ais.some(a=>a.id===c.id)) ? 180 : 0);
+    state.lordsWon = d.lordsWon||0;
     return true;
   }catch(_){ return false; }
 }
@@ -9045,7 +9329,7 @@ function freshGame(){
   genMap(); buildWorld();
   initMineSpots();
   addBuilding('rathaus', SX-1, SY-1, undefined, true);
-  createAi();
+  createAllLords();
   chronWaveRecord = 0;
   if (legacyChronicle){
     // Umzug aus der alten 64er-Welt: Chronik reist mit ins neue Reich
@@ -9103,7 +9387,8 @@ function restart(){
 }
 function init(){
   if (!load()) freshGame();
-  if (!state.ai) createAi();     // KI in bestehenden Spielständen nachrüsten
+  if (!state.ais) state.ais = [];
+  if (!state.ais.length) createAllLords();   // Fürsten in bestehenden Ständen nachrüsten
   initDungeonPortals();          // nach Gebäuden/KI, damit occ/aiOcc respektiert werden
   refreshPlanetSky();
   buildMenu();
@@ -9262,7 +9547,10 @@ setTimeout(()=>{
     window.DBG = { get state(){return state}, cam, addBuilding, spawnSoldier, spawnEnemy,
       fellTree, tryUpgrade, satisfaction, applyTerraform, spawnAiRaid,
       destroyBuilding, repairBuilding, walkable, upgradeCost,
-      aiStep(n){ for (let i=0;i<(n||1);i++){ if (state.ai && !state.ai.defeated){ state.ai.bt = 0; state.ai.tt = 0; updateAI(0.01); } } },
+      aiStep(n){ for (let i=0;i<(n||1);i++) for (const a of lords())
+        if (!a.defeated){ a.bt = 0; a.tt = 0; updateLord(a, 0.01); } },
+      aiStepFor(i,n){ const a = lords()[i]; if (!a) return;
+        for (let k=0;k<(n||1);k++){ if (a.defeated) return; a.bt = 0; updateLord(a, 0.01); } },
       setAttack(bd){ attackOrder = bd; },
       get aiGuards(){return aiGuards}, get soldiers(){return soldiers},
       startExpedition, isleOf, get expeditions(){return expeditions},
@@ -9444,9 +9732,19 @@ setTimeout(()=>{
       // Etappe 25c: Admin-Konsole (UI nur im privaten Build; Funktionen testbar)
       get IS_ADMIN(){ return IS_ADMIN; }, get adminCheats(){ return ADMIN; },
       adminGiveRes, adminAllRes, adminSetRathaus, adminSeenAll, adminSpeed,
-      adminWaveNow, adminWaveEnd, adminDefeatRagnar, adminSkillsMax, adminSkillExp,
+      adminWaveNow, adminWaveEnd, adminDefeatRagnar, adminDefeatAllLords,
+      adminSkillsMax, adminSkillExp,
       adminGiveItem, adminFillBag, adminTeleport, adminDungeonsClear,
       adminDungeonsReset, adminCompleteQuest, adminRerollOffers, openAdminSheet,
+      // Etappe 26a: die drei Fürsten, neue Siegbedingung, Belagerungs-Bau
+      get ais(){ return lords(); }, get aiFlat(){ return aiFlat; },
+      LORDS, lordCfg, lordProgress, lordBroken, lordIsle, siegeLordOn, siegeAllowed,
+      isSiegeBuilding, createAllLords, addLateLord, lordDefeated, aiEraIdx,
+      drawLordList, refreshSiegeFlags, spawnAiGuard, inMapT: inMap, inSettlement,
+      guardTick(sec){ updateAiGuards(sec||0.1); },
+      destroyAllOf(i){ const a = lords()[i]; if (!a) return false;
+        for (const bd of [...a.buildings]) destroyAiBuilding(bd); return true; },
+      get lordsWon(){ return state.lordsWon||0; },
       // Etappe 25d: Boots-Anlegen, Helden-Kollision, Craft-Freischaltung
       craftUnlockLvl, heroManualWalkable, startSail, cancelSail,
       get sinkingBoats(){ return sinkingBoats; },
