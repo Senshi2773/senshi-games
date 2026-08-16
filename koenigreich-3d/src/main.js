@@ -432,7 +432,7 @@ function genMap(){
   computeIsles();                        // final: inkl. Terraforming-Änderungen
 }
 // Insel-Zugehörigkeit jeder Landkachel (Flutfüllung) + Biom je Landmasse
-let isleId = null, isleBiome = null, isleParent = null;
+let isleId = null, isleBiome = null, isleParent = null, isleAreaP = null;
 function computeIsles(){
   isleId = new Int16Array(MAP*MAP);
   let next = 0;
@@ -458,12 +458,14 @@ function computeIsles(){
   }
   // Jede Landmasse ihrer Ursprungs-Insel zuordnen (Biom folgt der Insel-Definition)
   isleBiome = ['wiese']; isleParent = [0];
+  isleAreaP = ISLES.map(()=>0);                  // Landfläche je Ursprungs-Insel (Wildtier-Caps)
   for (let id=1; id<=next; id++){
     const mx = sumX[id]/cnt[id], my = sumY[id]/cnt[id];
     let bi = 0, bs = -1e9;
     ISLES.forEach((I,i)=>{ const f = 1 - dist(mx,my,I.x,I.y)/I.r; if (f > bs){ bs = f; bi = i; } });
     isleParent[id] = bi;
     isleBiome[id] = ISLES[bi] ? ISLES[bi].biome : 'wiese';
+    isleAreaP[bi] += cnt[id];
   }
 }
 const isleOf = (fx,fy)=>{
@@ -1741,6 +1743,8 @@ function killLoot(e){
     loot.eisen = 3 + Math.floor(rathausLvl()/4);
     if (rathausLvl() >= 16) loot.stahl = 1;
   }
+  // Glücksamulett: +10 % Gold-Anteil, wenn der Held den Gegner erlegt hat
+  if (e && e.heroKill && heroTrinket('gluecksamulett')) loot.gold = Math.round(loot.gold*1.1);
   addLoot(loot);
 }
 function flushLoot(dt){
@@ -2114,6 +2118,7 @@ function applyTerraform(kind, x, y){
     bd.mesh.position.y = Math.max(hAt(cx,cy), 0.02);
   }
   state.buildings.forEach(recalcEff);
+  initMineSpots();           // Ufer haben sich geändert: Spots prüfen + Optik neu setzen
   spawnBurst(wx(x), Math.max(hAt(x,y),0)+0.4, wz(y), 10, kind==='see' ? 0x9fd4ff : 0xc9b28a);
   toast(kind==='see' ? '🌊 See ausgehoben!' : '🌱 Neues Land aufgeschüttet!');
   save();
@@ -2498,10 +2503,11 @@ function makePerson(kind, matIdx){
     cape.position.set(0,0.44,-0.135); cape.rotation.x = 0.1; cape.name = 'cape'; g.add(cape);
     const clasp = mesh(new THREE.SphereGeometry(0.03,6,5), M.gold, false);
     clasp.position.set(0,0.55,0.11); g.add(clasp);
-    // Waffen-Anker 'wpn' (24b tauscht den Inhalt); Start: Holzknüppel
+    // Ausrüstungs-Anker: 'wpn' (Waffe an armR), 'armor' (Brust/Schultern), 'trk' (Amulett).
+    // Inhalt setzt applyHeroEquipVisual() – hier bleiben die Gruppen leer.
     const wpn = new THREE.Group(); wpn.name = 'wpn'; armR.add(wpn);
-    const club = mesh(new THREE.CylinderGeometry(0.028,0.045,0.32,6), M.woodDark, false);
-    club.position.set(0.02,-0.2,0.05); club.rotation.x = 0.5; wpn.add(club);
+    const armor = new THREE.Group(); armor.name = 'armor'; g.add(armor);
+    const trk = new THREE.Group(); trk.name = 'trk'; trk.position.set(0,0.555,0.115); g.add(trk);
     // Goldener Bodenring statt HP-Dauerbalken
     const ring = mesh(ringGeo, PM.heldRing, false, false);
     ring.rotation.x = -Math.PI/2; ring.position.y = 0.06; g.add(ring);
@@ -2961,8 +2967,16 @@ function reichName(){
 }
 const heroLevel = ()=> state.hero
   ? state.hero.skills.k + state.hero.skills.h + state.hero.skills.s + state.hero.skills.c : 0;
-function heroMaxHp(){ return 100 + 12*(heroLevel()-4); }               // + Rüstungsbonus (24b)
-function heroWeaponDmg(){ return state.hero && state.hero.equip.w ? 8 : 5; }  // 24a: nur Holzknüppel
+function heroArmorHp(){
+  const a = state.hero && state.hero.equip.a && HERO_ITEMS[state.hero.equip.a];
+  return a ? a.hp : 0;
+}
+function heroMaxHp(){ return 100 + 12*(heroLevel()-4) + heroArmorHp(); }
+function heroWeaponDmg(){
+  const w = state.hero && state.hero.equip.w && HERO_ITEMS[state.hero.equip.w];
+  return w ? w.dmg : 5;                              // unbewaffnet: 5
+}
+function heroTrinket(id){ return !!(state.hero && state.hero.equip.t === id); }
 function heroDmg(){
   return heroWeaponDmg() * (1 + 0.08*((state.hero ? state.hero.skills.k : 1)-1)) * (isMil()?1.1:1);
 }
@@ -2996,6 +3010,7 @@ function spawnHeroUnit(){
     moving:false, speed:2.2, mesh: makePerson('held') };
   hero.prevHp = hero.hp;
   if (h.respawn > 0) hero.mesh.visible = false;
+  applyHeroEquipVisual();                // Waffe/Rüstung/Amulett ans Modell + an die Ego-Hände
   return hero;
 }
 function recruitHero(){
@@ -3053,6 +3068,7 @@ function updateHeroAuto(dt){
   if (best && isleOf(best.x,best.y) !== isleOf(hero.x,hero.y)) best = null;
   if (best){
     hero.patrol = null;
+    if (mining) mining = null;                       // Schürfen bricht bei Gegnern sofort ab
     if (bd2 > 0.85){ hero.moving = true; steer(hero, best.x, best.y, 2.2, dt); }
     else {
       hero.moving = false;
@@ -3060,6 +3076,10 @@ function updateHeroAuto(dt){
         hero.cd = 0.8; hero.aggroT = 5;
         hero.dir = Math.atan2(best.y-hero.y, best.x-hero.x);
         best.hp -= heroDmg();
+        if (best.hp <= 0){                           // Auto-Kill: halbe Kampf-EXP
+          best.heroKill = 1;
+          giveHeroExp('k', Math.round((10 + 2*state.wave)*0.5));
+        }
         spawnBurst(wx(best.x), hAt(best.x,best.y)+0.5, wz(best.y), 3, 0xffd27a);
         snd(200,0.05,'square',0.03);
       }
@@ -3103,6 +3123,53 @@ function updateHeroAuto(dt){
     const p = heroHome();
     startSail(hero, p[0], p[1]);
     return;
+  }
+  // Priorität 2: Auto-Schürfen (30 % Rate) – braucht Goldpfanne; voller Beutel wird abgeliefert
+  if (state.hero.pfanne){
+    if (bagCount() >= heroCapacity() && bagCount() > 0){
+      let tgt = null, td = 1e9;
+      for (const bd of state.buildings){
+        if (bd.ruin || (bd.t!=='markt' && bd.t!=='rathaus' && bd.t!=='heldenhalle')) continue;
+        const c = buildingCenter(bd);
+        if (isleOf(c[0],c[1]) !== isleOf(hero.x,hero.y)) continue;
+        const d = dist(hero.x,hero.y,c[0],c[1]);
+        if (d < td){ td = d; tgt = bd; }
+      }
+      if (tgt){
+        hero.patrol = null; mining = null;
+        const c = buildingCenter(tgt);
+        if (td > 2.2){ hero.moving = true; steer(hero, c[0], c[1], 2.2, dt); }
+        else { hero.moving = false; emptyBag(); }
+        return;
+      }
+    } else {
+      let sp = null, sd = 1e9;
+      for (const s of (state.mineSpots||[])){
+        if (s.left <= 0 || (s.skip||0) > state.time) continue;
+        if (isleOf(s.x,s.y) !== isleOf(hero.x,hero.y)) continue;
+        const d = dist(hero.x,hero.y,s.x,s.y);
+        if (d < sd){ sd = d; sp = s; }
+      }
+      if (sp){
+        hero.patrol = null;
+        if (sd > 1.4){
+          mining = null;
+          hero.moving = true;
+          const px = hero.x, py = hero.y;
+          steer(hero, sp.x, sp.y, 2.2, dt);
+          // Anti-Festhäng: kommt er nicht voran, Spot 30 s überspringen
+          if (dist(hero.x,hero.y,px,py) < 2.2*dt*0.3) hero.mineNo = (hero.mineNo||0) + dt;
+          else hero.mineNo = 0;
+          if (hero.mineNo > 6){ sp.skip = state.time + 30; hero.mineNo = 0; }
+        } else {
+          hero.moving = false;
+          hero.dir = Math.atan2(sp.y-hero.y, sp.x-hero.x);
+          if (!mining || mining.spot !== sp)
+            mining = { spot:sp, t:0, dur:mineDur(true), auto:true };
+        }
+        return;
+      }
+    }
   }
   // Priorität 3: Patrouille zwischen Toren, Türmen und Heldenhalle
   hero.wait = Math.max(0, (hero.wait||0) - dt);
@@ -3190,6 +3257,16 @@ function updateHero(dt){
   // Regeneration: 2 HP/s nach 5 s ohne Treffer (Lazarett-Aura wirkt zusätzlich)
   if (hero.hp < hero.maxhp && state.time - hero.lastHit > 5)
     hero.hp = Math.min(hero.maxhp, hero.hp + 2*dt);
+  // Schürf-Spots entdecken (≤ 6 Kacheln) → Minimap-Marker
+  hero.spotT = (hero.spotT||0) - dt;
+  if (hero.spotT <= 0){
+    hero.spotT = 0.7;
+    for (const s of (state.mineSpots||[]))
+      if (!s.found && s.left > 0 && dist(hero.x,hero.y,s.x,s.y) <= 6){
+        s.found = 1;
+        toast('⛏️ Schürf-Spot entdeckt – glitzernde Kiesbank auf der Karte markiert!', 3000);
+      }
+  }
   if (hero.sail){ /* Überfahrt läuft in updateAllSails */ }
   else if (egoMode && !h.auto) updateHeroEgo(dt);
   else updateHeroAuto(dt);
@@ -3212,16 +3289,26 @@ function egoTargetEnemy(){
   for (const g of aiGuards) scan(g);
   return best;
 }
-// Primär-Aktion (24a: Basis-Schlag; 24b ergänzt Handeln/Schürfen/Schmieden …)
+// Nahkampfschlag (Ego): Gegner haben Vorrang, danach Wildtiere im Kegel
 function heroAttack(){
   if (!egoMode || !heroAlive() || hero.cd > 0) return false;
-  const t2 = egoTargetEnemy();
+  let wild = null, t2 = egoTargetEnemy();
+  if (!t2){ wild = egoTargetWild(); t2 = wild; }
   if (!t2) return false;
-  hero.cd = 0.8; hero.aggroT = 5;
+  hero.cd = 0.8;
   const a = Math.atan2(t2.y-hero.y, t2.x-hero.x);
   hero.dir = a;
   egoYaw += Math.atan2(Math.sin(a-egoYaw), Math.cos(a-egoYaw))*0.5;   // weiches Eindrehen zum Ziel
   t2.hp -= heroDmg();
+  if (wild){
+    wild.aggro = true;                     // Wehr-Arten schlagen zurück, Flucht-Arten fliehen ohnehin
+  } else {
+    hero.aggroT = 5;
+    if (t2.hp <= 0){                       // Kampf-EXP nur für echte Gegner (manuell: voll)
+      t2.heroKill = 1;
+      giveHeroExp('k', 10 + 2*state.wave);
+    }
+  }
   handSwingT = 0.25;
   spawnBurst(wx(t2.x), hAt(t2.x,t2.y)+0.5, wz(t2.y), 4, 0xffd27a);
   snd(190,0.06,'square',0.04);
@@ -3238,14 +3325,20 @@ let egoHandR = null;
   const hl = mesh(handGeo, M.skin, false, false);
   hl.position.set(-0.105,-0.2,-0.42); hl.rotation.set(0.3,0.15,0);
   egoHands.add(hl);
+  // Rüstungs-Stulpen (Inhalt setzt applyHeroEquipVisual je nach Rüstung)
+  const armL = new THREE.Group(); armL.name = 'armE_L';
+  armL.position.copy(hl.position); armL.rotation.copy(hl.rotation);
+  egoHands.add(armL);
   egoHandR = new THREE.Group();
   egoHandR.position.set(0.105,-0.2,-0.42);
   const hr = mesh(handGeo, M.skin, false, false);
   hr.rotation.set(0.3,-0.15,0);
   egoHandR.add(hr);
-  const club = mesh(new THREE.CylinderGeometry(0.02,0.034,0.3,6), M.woodDark, false, false);
-  club.position.set(0.015,0.09,-0.1); club.rotation.x = -0.9;
-  egoHandR.add(club);
+  const armR = new THREE.Group(); armR.name = 'armE_R';
+  armR.rotation.copy(hr.rotation);
+  egoHandR.add(armR);
+  const wpnE = new THREE.Group(); wpnE.name = 'wpnE';   // Waffe (Inhalt: applyHeroEquipVisual)
+  egoHandR.add(wpnE);
   egoHands.add(egoHandR);
   camera.add(egoHands);
 }
@@ -3256,10 +3349,10 @@ function setEgoUI(on){
   $('topbar').style.display = on ? 'none' : '';
   ui.wavebar.style.display = on ? 'none' : '';
   if (on) ui.hint.style.display = 'none';
-  for (const id of ['egoExit','egoHp','egoRes']) $(id).style.display = on ? 'flex' : 'none';
+  for (const id of ['egoExit','egoHp','egoRes','egoAct2']) $(id).style.display = on ? 'flex' : 'none';
   $('egoCross').style.display = on ? 'block' : 'none';
   if (!on)
-    for (const id of ['egoAct','egoAct2','egoBanner','egoStick']) $(id).style.display = 'none';
+    for (const id of ['egoAct','egoAct2','egoBanner','egoStick','egoRing']) $(id).style.display = 'none';
 }
 function enterEgo(){
   if (egoMode) return true;
@@ -3267,6 +3360,7 @@ function enterEgo(){
       state.hero.respawn > 0 || hero.sail) return false;
   egoMode = true;
   state.hero.auto = 0;
+  mining = null; sailPick = null;
   egoYaw = hero.dir||0; egoPitch = 0; egoBobT = 0; handSwingT = 0;
   egoStick.x = 0; egoStick.y = 0;
   cancelEraFlight(); cancelPlacing(); hideInfo(); selected = null; hideSelQuads(); closeBuildSheet();
@@ -3281,6 +3375,8 @@ function exitEgo(){
   if (!egoMode) return false;
   egoMode = false;
   if (state.hero) state.hero.auto = 1;   // Held macht alleine weiter
+  mining = null; sailPick = null;
+  hideInfo();                            // offene Ego-Sheets (Beutel/Crafting/Handel) schließen
   egoStick.x = 0; egoStick.y = 0;
   egoPtr.clear();
   if (hero) hero.mesh.visible = !(state.hero && state.hero.respawn > 0);
@@ -3290,6 +3386,7 @@ function exitEgo(){
 // --- Ego-Touch: dynamischer Joystick links, Blick-Drag rechts, Tap = Kontextaktion ---
 const egoPtr = new Map();
 function egoPointerDown(e){
+  if (hero && hero.sail) return;           // Überfahrt: Steuerung gesperrt (nur Exit-Button)
   cv.setPointerCapture(e.pointerId);
   const W = window.innerWidth, H = window.innerHeight;
   const stickTaken = [...egoPtr.values()].some(p=>p.role==='stick');
@@ -3328,11 +3425,12 @@ function egoPointerUp(e){
     egoStick.x = 0; egoStick.y = 0;
     $('egoStick').style.display = 'none';
   } else if (!p.moved && performance.now()-p.t < 200){
-    heroAttack();                        // Tap = Kontext-Interaktion aufs Fadenkreuz-Ziel
+    egoAction();                         // Tap = Kontext-Interaktion aufs Fadenkreuz-Ziel
   }
 }
 $('egoExit').addEventListener('click', ()=>exitEgo());
-$('egoAct').addEventListener('click', ()=>heroAttack());
+$('egoAct').addEventListener('click', ()=>egoAction());
+$('egoAct2').addEventListener('click', ()=>showBagSheet());
 $('egoBanner').addEventListener('click', ()=>{
   // Zur Stadt: Orbit-Kamera zentriert auf den nächsten Angreifer, Held → Auto-Modus
   let best = null, bd2 = 1e9;
@@ -3346,6 +3444,14 @@ $('egoBanner').addEventListener('click', ()=>{
 const _egoCam = new THREE.PerspectiveCamera();
 const _fromPos = new THREE.Vector3(), _fromQ = new THREE.Quaternion();
 function egoView(){
+  if (hero.sail){
+    // ⛵ Verfolger-Kamera: hinter dem Boot her, Blick aufs Boot
+    const s = hero.sail, bp = s.boat.position;
+    const dxn = s.x1-s.x0, dyn = s.y1-s.y0, l = Math.hypot(dxn,dyn)||1;
+    _egoCam.position.set(bp.x - dxn/l*7, 3.4, bp.z - dyn/l*7);
+    _egoCam.lookAt(bp.x, 0.5, bp.z);
+    return;
+  }
   const bob = hero && hero.moving ? Math.sin(egoBobT)*0.02 : 0;   // Kopf-Bobbing ±0,02
   const ex = wx(hero.x), ez = wz(hero.y);
   const ey = Math.max(hAt(hero.x,hero.y),0) + 0.62 + bob;         // Augenhöhe
@@ -3393,7 +3499,10 @@ function showHeroInfo(){
   $('ipDesc').textContent = 'Dein Held – steuere ihn aus der Ego-Perspektive oder lass ihn selbstständig patrouillieren und verteidigen.';
   $('ipStats').textContent = '❤️ ' + Math.ceil(hero?hero.hp:h.hp) + '/' + heroMaxHp() +
     ' · 💥 ' + Math.round(heroDmg()) + ' · 🥾 2,2' +
-    ' · ⚔️' + h.skills.k + ' 🤝' + h.skills.h + ' ⛏️' + h.skills.s + ' 🔨' + h.skills.c;
+    ' · ⚔️' + h.skills.k + ' 🤝' + h.skills.h + ' ⛏️' + h.skills.s + ' 🔨' + h.skills.c +
+    ' · ' + equipLabel('w') + ' · ' + equipLabel('a') + ' · ' + equipLabel('t') +
+    (h.pfanne ? ' · 🥄' : '') +
+    ' · 🎒 ' + bagCount() + '/' + heroCapacity();
   const btns = $('ipBtns'); btns.innerHTML = '';
   const sb = document.createElement('button');
   sb.className = 'btn-green'; sb.textContent = '🎮 Steuern (Ego-Modus)';
@@ -3410,6 +3519,899 @@ function showHeroInfo(){
   });
   btns.appendChild(hb);
   ui.info.style.display = 'block';
+}
+
+// ============================== HELDEN-AKTIONEN (Etappe 24b) ==============================
+// Schürfen, Crafting/Ausrüstung, Helden-Handel, Hafen-Übersetzen, Beutel, Wildtiere.
+
+// --- Ausrüstungs-Katalog (Crafting-Tabelle 5.2) ---
+const HERO_ITEMS = {
+  holzknueppel:   { name:'🪵 Holzknüppel',    slot:'w', dmg:8,  tier:0 },   // gratis beim Rekrutieren
+  pfanne:         { name:'🥄 Goldpfanne',     slot:'tool', tier:1, cost:{holz:15,gold:20},
+                    fx:'schaltet Schürfen frei' },
+  eisenschwert:   { name:'🪓 Eisenschwert',   slot:'w', dmg:18, tier:1, cost:{eisen:20,holz:10,gold:30}, skill:1 },
+  lederwams:      { name:'🦺 Lederwams',      slot:'a', hp:40,  tier:1, cost:{nahrung:20,gold:15}, skill:1 },
+  ritterklinge:   { name:'⚔️ Ritterklinge',   slot:'w', dmg:26, tier:2, cost:{eisen:45,gold:60},  skill:3, req:6 },
+  eisenharnisch:  { name:'🛡️ Eisenharnisch',  slot:'a', hp:90,  tier:2, cost:{eisen:50,gold:50},  skill:3, req:6 },
+  stahlklinge:    { name:'🗡️ Stahlklinge',    slot:'w', dmg:38, tier:3, cost:{stahl:35,gold:90},  skill:5, req:11 },
+  stahlpanzer:    { name:'🛡️ Stahlpanzer',    slot:'a', hp:160, tier:3, cost:{stahl:45,gold:110}, skill:5, req:11 },
+  energieklinge:  { name:'⚡ Energieklinge',   slot:'w', dmg:55, tier:4, cost:{lithium:15,stahl:40,gold:220}, skill:7, req:21 },
+  schildgenerator:{ name:'🔰 Schildgenerator', slot:'a', hp:260, tier:4, cost:{lithium:20,stahl:30,gold:260}, skill:7, req:21 },
+  // Amulette: Rathaus-Gates 8/12/16 (24c ergänzt Dungeon-Rezeptfunde)
+  gluecksamulett:   { name:'🧿 Glücksamulett',     slot:'t', tier:1, cost:{gold:80,eisen:10}, req:8,  fx:'+10 % Gold-Beute' },
+  bergmannstalisman:{ name:'🧿 Bergmannstalisman', slot:'t', tier:2, cost:{gold:120,stahl:8}, req:12, fx:'−20 % Schürfdauer' },
+  haendlersiegel:   { name:'🧿 Händlersiegel',     slot:'t', tier:3, cost:{gold:160,oel:10},  req:16, fx:'+2 % Kurse' },
+};
+const CRAFT_ORDER = ['pfanne','eisenschwert','lederwams','ritterklinge','eisenharnisch',
+  'stahlklinge','stahlpanzer','energieklinge','schildgenerator',
+  'gluecksamulett','bergmannstalisman','haendlersiegel'];
+// Beutel-Items (generisch, {t,n}-Stapel – Felle & Co. stecken im selben System wie Nuggets)
+const BAG_ITEMS = {
+  nugget: { name:'Nugget',        icon:'✨', gold:3 },
+  wnugget:{ name:'Wüsten-Nugget', icon:'✨', gold:3.75 },   // Wüsten-Spot: +25 % Wert
+  gem:    { name:'Edelstein',     icon:'💎', gold:40 },
+  fell:   { name:'Fell',          icon:'🟫', gold:5 },
+  chitin: { name:'Chitinpanzer',  icon:'🪲', gold:6 },
+  glut:   { name:'Glutschuppe',   icon:'🔥', gold:8 },
+};
+// Gold-Gegenwerte fürs Verkaufen ersetzter Ausrüstung („Marktwert“ = 50 % der Materialkosten)
+const GOLD_VAL = { holz:0.3, stein:0.4, nahrung:0.35, erz:0.8, eisen:2.0, stahl:5, oel:4, lithium:8, gold:1 };
+function itemValue(id){
+  const it = HERO_ITEMS[id];
+  if (!it || !it.cost) return 0;
+  let v = 0;
+  for (const k in it.cost) v += it.cost[k]*(GOLD_VAL[k]||1);
+  return Math.round(v*0.5);
+}
+function equipLabel(slot){
+  const id = state && state.hero && state.hero.equip[slot];
+  if (id && HERO_ITEMS[id]) return HERO_ITEMS[id].name;
+  return slot==='w' ? '✊ unbewaffnet' : (slot==='a' ? '🛡️ –' : '🧿 –');
+}
+
+// --- Beutel (Tragkraft 10 + 2·Schürfen) ---
+function heroCapacity(){ return state.hero ? 10 + 2*state.hero.skills.s : 0; }
+function bagCount(){ return state.hero ? state.hero.bag.reduce((n,s)=>n+s.n, 0) : 0; }
+function bagAdd(t, n){
+  if (!state.hero || !BAG_ITEMS[t]) return 0;
+  const add = Math.min(n, Math.max(0, heroCapacity() - bagCount()));
+  if (add > 0){
+    const st = state.hero.bag.find(s=>s.t===t);
+    if (st) st.n += add; else state.hero.bag.push({ t, n:add });
+  }
+  return add;
+}
+function bagValue(){
+  return state.hero ? state.hero.bag.reduce((v,s)=>v + s.n*(BAG_ITEMS[s.t]?BAG_ITEMS[s.t].gold:0), 0) : 0;
+}
+function bagNuggetValue(){
+  return state.hero ? state.hero.bag.reduce((v,s)=>
+    v + ((s.t==='nugget'||s.t==='wnugget') ? s.n*BAG_ITEMS[s.t].gold : 0), 0) : 0;
+}
+function emptyBag(){
+  const h = state.hero;
+  if (!h || !h.bag.length) return 0;
+  const v = Math.round(bagValue());
+  const txt = h.bag.map(s=>BAG_ITEMS[s.t].icon+'×'+s.n).join(' ');
+  h.bag = [];
+  state.res.gold += v;
+  toast('🎒 Beutel geleert: '+txt+' → +'+v+' 🪙', 3400);
+  snd(700,0.1,'triangle',0.05);
+  save();
+  return v;
+}
+// Abgabepunkt in Reichweite des Helden (Markt/Rathaus/Heldenhalle, ≤ 3 Kacheln)
+function nearDeliverBuilding(){
+  if (!heroAlive()) return null;
+  for (const bd of state.buildings){
+    if (bd.ruin || (bd.t!=='markt' && bd.t!=='rathaus' && bd.t!=='heldenhalle')) continue;
+    const c = buildingCenter(bd);
+    if (dist(hero.x,hero.y,c[0],c[1]) - (BT[bd.t].w-1)*0.7 <= 3.01) return bd;
+  }
+  return null;
+}
+
+// --- Ausrüstungs-Optik: Waffe (wpn/wpnE), Rüstung (armor + Ego-Stulpen), Amulett (trk) ---
+const HM = {
+  leather: std(0x7a4f2c), leatherD: std(0x5d3b20),
+  energy: std(0x35e0ff,{ emissive:0x22c8e8, emissiveIntensity:1.5 }),
+  glowGold: std(0xffd75a,{ emissive:0xdfa520, emissiveIntensity:1.2 }),
+  glowOrange: std(0xffa04a,{ emissive:0xff7020, emissiveIntensity:1.2 }),
+  glowBlue: std(0x6aa8ff,{ emissive:0x3a78e8, emissiveIntensity:1.2 }),
+  shield: std(0x9fe8ff,{ emissive:0x50b8e0, emissiveIntensity:0.9 }),
+};
+for (const k in HM) HM[k].userData.shared = true;
+function makeHeroWeaponMesh(id){
+  const g = new THREE.Group();
+  const blade = (h2, mat, w2)=>{
+    g.add(bx(w2||0.045, h2, 0.02, mat, 0, 0));                      // Klinge (+Y)
+    g.add(bx(0.12,0.03,0.03, M.gold, 0, -0.02));                    // Parierstange
+    g.add(cyl(0.018,0.02,0.1, HM.leatherD, 0, -0.13, 0, 6));        // Griff
+  };
+  if (id==='holzknueppel') g.add(cyl(0.045,0.028,0.32, M.woodDark, 0, -0.1, 0, 6));
+  else if (id==='eisenschwert') blade(0.4, M.steel);
+  else if (id==='ritterklinge'){ blade(0.5, M.steel, 0.05); g.add(bx(0.04,0.04,0.04, M.banner, 0, -0.2)); }
+  else if (id==='stahlklinge'){ blade(0.56, M.stoneLight, 0.045); }
+  else if (id==='energieklinge'){
+    g.add(bx(0.05,0.5,0.025, HM.energy, 0, 0));
+    g.add(bx(0.1,0.04,0.04, PM.laserDark, 0, -0.03));
+    g.add(cyl(0.02,0.022,0.12, PM.laserDark, 0, -0.15, 0, 6));
+  }
+  for (const c of g.children) c.castShadow = false;
+  return g;
+}
+function makeHeroArmorMesh(id){
+  const g = new THREE.Group();
+  const tier = HERO_ITEMS[id] ? HERO_ITEMS[id].tier : 1;
+  const mat = id==='lederwams' ? HM.leather : (tier===2 ? M.steel : (tier===3 ? armorMat : HM.shield));
+  g.add(bx(0.22,0.2,0.05, mat, 0, 0.33, 0.105));                    // Brustplatte
+  if (tier >= 2) for (const sx of [-1,1]){                          // Schulterplatten
+    const sh = mesh(new THREE.SphereGeometry(0.055,6,5), mat, false);
+    sh.position.set(sx*0.15, 0.53, 0); sh.scale.y = 0.7; g.add(sh);
+  }
+  if (tier >= 3) g.add(bx(0.2,0.16,0.04, mat, 0, 0.35, -0.1));      // Rückenplatte
+  if (id==='schildgenerator'){                                      // leuchtender Emitter
+    const ring = mesh(new THREE.TorusGeometry(0.17,0.02,6,14), HM.shield, false);
+    ring.position.y = 0.42; ring.rotation.x = Math.PI/2; g.add(ring);
+  }
+  for (const c of g.children) c.castShadow = false;
+  return g;
+}
+function makeHeroTrinketMesh(id){
+  const mat = id==='gluecksamulett' ? HM.glowGold : (id==='bergmannstalisman' ? HM.glowOrange : HM.glowBlue);
+  const m = mesh(new THREE.SphereGeometry(0.032,6,5), mat, false);
+  return m;
+}
+function clearAnchor(a){
+  if (!a) return;
+  for (let i=a.children.length-1;i>=0;i--){
+    const c = a.children[i];
+    a.remove(c);
+    disposeGroup(c);
+    if (c.isMesh && c.geometry && !c.geometry.userData.shared) c.geometry.dispose();
+  }
+}
+function applyHeroEquipVisual(){
+  const h = state.hero;
+  if (!h) return;
+  if (hero && hero.mesh){
+    const wpn = hero.mesh.getObjectByName('wpn');
+    clearAnchor(wpn);
+    if (wpn && h.equip.w){
+      const m = makeHeroWeaponMesh(h.equip.w);
+      m.position.set(0.02, 0.04, 0.03);
+      wpn.add(m);
+    }
+    const armor = hero.mesh.getObjectByName('armor');
+    clearAnchor(armor);
+    if (armor && h.equip.a) armor.add(makeHeroArmorMesh(h.equip.a));
+    const trk = hero.mesh.getObjectByName('trk');
+    clearAnchor(trk);
+    if (trk && h.equip.t) trk.add(makeHeroTrinketMesh(h.equip.t));
+  }
+  // Ego-Hände: Waffe in der Rechten, Rüstungs-Stulpen an beiden Händen
+  const wpnE = egoHands.getObjectByName('wpnE');
+  clearAnchor(wpnE);
+  if (h.equip.w){
+    const m = makeHeroWeaponMesh(h.equip.w);
+    m.scale.setScalar(0.5);                           // Nähe zur Kamera: klein halten
+    m.position.set(0.012, 0.045, -0.07);
+    m.rotation.x = -0.95;                             // Klinge zeigt nach vorn-oben
+    m.rotation.z = 0.22;                              // leicht zur Bildmitte geneigt
+    wpnE.add(m);
+  }
+  for (const nm of ['armE_L','armE_R']){
+    const g2 = egoHands.getObjectByName(nm);
+    clearAnchor(g2);
+    if (g2 && h.equip.a){
+      const it = HERO_ITEMS[h.equip.a];
+      const mat = it.tier<=1 ? HM.leather : (it.tier===2 ? M.steel : (it.tier===3 ? armorMat : HM.shield));
+      const cuff = mesh(new THREE.BoxGeometry(0.082,0.032,0.06), mat, false, false);
+      cuff.position.set(0, 0.036, 0.05);              // schmale Stulpe oben auf der Hand
+      g2.add(cuff);
+    }
+  }
+}
+function equipHero(slot, id){
+  const h = state.hero;
+  if (!h || !HERO_ITEMS[id] || HERO_ITEMS[id].slot !== slot) return false;
+  const old = h.equip[slot];
+  if (old === id) return true;
+  if (old && HERO_ITEMS[old]){
+    const v = itemValue(old);            // Ersetzen verkauft das alte Stück zum Marktwert
+    if (v > 0){
+      state.res.gold += v;
+      toast('💰 '+HERO_ITEMS[old].name+' zum Marktwert verkauft: +'+v+' 🪙');
+    }
+  }
+  h.equip[slot] = id;
+  if (hero){
+    const ratio = hero.maxhp > 0 ? clamp(hero.hp/hero.maxhp, 0, 1) : 1;
+    hero.maxhp = heroMaxHp();
+    hero.hp = Math.min(hero.maxhp, Math.max(hero.hp, Math.round(hero.maxhp*Math.min(ratio,1))));
+    applyHeroEquipVisual();
+  }
+  save();
+  return true;
+}
+
+// --- Crafting an der Schmiede (sofort; Rabatt über Schmiedekunst; Nuggets zahlen mit) ---
+function bestSmithLvl(tier){
+  let l = 0;
+  for (const bd of state.buildings){
+    if (bd.ruin) continue;
+    if (bd.t==='schmiede' || (bd.t==='stahlwerk' && tier>=3)) l = Math.max(l, lvlOf(bd));
+  }
+  return l;
+}
+function craftDiscount(){
+  return state.hero ? Math.min(0.30, 0.04*(state.hero.skills.c-1)) : 0;
+}
+function craftCost(id){
+  return scaleCost(HERO_ITEMS[id].cost||{}, 1 - craftDiscount());
+}
+// Gate-Prüfung: null = craftbar, sonst Begründung (Skill/Rathaus/Gebäudestufe)
+function craftGate(id){
+  const it = HERO_ITEMS[id];
+  if (!state.hero) return 'Kein Held rekrutiert';
+  if (id==='pfanne' && state.hero.pfanne) return '✔ im Besitz';
+  if (it.slot!=='tool' && state.hero.equip[it.slot]===id) return '✔ angelegt';
+  if (it.skill && state.hero.skills.c < it.skill) return '🔒 Schmiedekunst '+it.skill;
+  if (it.req && rathausLvl() < it.req) return '🔒 Rathaus '+it.req;
+  // Gebäudestufe ≥ Tier·3 (Goldpfanne: jede intakte Schmiede reicht – Tutorial-Craft)
+  const need = id==='pfanne' ? 1 : it.tier*3;
+  if (bestSmithLvl(it.tier) < need)
+    return '🔒 '+(it.tier>=3 ? 'Schmiede/Stahlwerk' : 'Schmiede')+' Stufe '+need;
+  return null;
+}
+function canPayCraft(c){
+  for (const k in c) if (k!=='gold' && state.res[k] < c[k]) return false;
+  return state.res.gold + bagNuggetValue() >= (c.gold||0);
+}
+function payCraft(c){
+  for (const k in c) if (k!=='gold') state.res[k] -= c[k];
+  let g = c.gold||0;
+  // Nuggets zuerst als Zahlungsmittel (1:1 zum Goldwert), Rest in Gold
+  for (const s of state.hero.bag){
+    if (g <= 0 || (s.t!=='nugget' && s.t!=='wnugget')) continue;
+    const val = BAG_ITEMS[s.t].gold;
+    let use = Math.min(s.n, Math.floor(g/val));
+    if (use*val < g && g - use*val > state.res.gold && use < s.n) use++;   // Restgold fehlt → 1 Nugget drauf
+    if (use > 0){ s.n -= use; g = Math.max(0, g - use*val); }
+  }
+  state.hero.bag = state.hero.bag.filter(s=>s.n>0);
+  state.res.gold -= g;
+}
+function craftHero(id){
+  const it = HERO_ITEMS[id];
+  if (!it || !it.cost) return false;
+  const why = craftGate(id);
+  if (why){ toast('🔨 '+it.name+': '+why); return false; }
+  const c = craftCost(id);
+  if (!canPayCraft(c)){ toast('Nicht genug Rohstoffe für '+it.name+'.'); return false; }
+  payCraft(c);
+  giveHeroExp('c', 25*it.tier);
+  if (id==='pfanne'){
+    state.hero.pfanne = 1;
+    toast('🥄 Goldpfanne geschmiedet – halte am Ufer nach glitzernden Kiesbänken Ausschau!', 5200);
+  } else {
+    equipHero(it.slot, id);
+    toast('🔨 '+it.name+' geschmiedet und angelegt!');
+  }
+  snd(340,0.1,'square',0.04); snd(520,0.14,'triangle',0.05);
+  save();
+  return true;
+}
+function openCraftSheet(bd){
+  const h = state.hero;
+  if (!h) return;
+  $('ipName').textContent = '🔨 '+BT[bd.t].name+' · Crafting (Schmiedekunst '+h.skills.c+')';
+  $('ipDesc').textContent = 'Sofortiges Schmieden – Rabatt '+Math.round(craftDiscount()*100)+
+    ' % durch Schmiedekunst. Nuggets im Beutel zahlen mit (Gegenwert in Gold).';
+  $('ipStats').textContent = equipLabel('w')+' · '+equipLabel('a')+' · '+equipLabel('t')+
+    (h.pfanne ? ' · 🥄 Goldpfanne' : '');
+  const btns = $('ipBtns'); btns.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'max-height:36vh;overflow-y:auto;margin-top:4px;padding-right:2px';
+  for (const id of CRAFT_ORDER){
+    const it = HERO_ITEMS[id];
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:5px;'+
+      'padding-top:5px;border-top:1px solid rgba(255,255,255,.1)';
+    const lab = document.createElement('div');
+    lab.style.cssText = 'flex:1;font-size:12.5px;color:#cfe0f0';
+    const eff = it.dmg ? '💥 '+it.dmg : (it.hp ? '+'+it.hp+' ❤️' : (it.fx||''));
+    lab.textContent = it.name+' · '+eff;
+    row.appendChild(lab);
+    const why = craftGate(id);
+    if (why){
+      const st2 = document.createElement('div');
+      st2.style.cssText = 'font-size:11.5px;color:'+(why[0]==='✔' ? '#9fd8a8' : '#9aa7bb')+';flex-shrink:0';
+      st2.textContent = why;
+      row.appendChild(st2);
+    } else {
+      const c = craftCost(id);
+      const b2 = document.createElement('button');
+      b2.className = 'btn-green';
+      b2.style.cssText = 'margin:0;flex-shrink:0;font-size:12px;padding:8px 10px';
+      b2.textContent = Object.entries(c).map(([k,v])=>COSTICON[k]+v).join(' ');
+      if (!canPayCraft(c)){ b2.disabled = true; b2.style.opacity = '0.45'; }
+      else b2.addEventListener('click', ()=>{ if (craftHero(id)) openCraftSheet(bd); });
+      row.appendChild(b2);
+    }
+    wrap.appendChild(row);
+  }
+  btns.appendChild(wrap);
+  ui.info.style.display = 'block';
+}
+
+// --- Helden-Handel am Markt (±1,5 %/Stufe + Händlersiegel; Klemme buy ≥ sell·1,05) ---
+function heroTradeBonus(){
+  const h = state.hero ? state.hero.skills.h : 1;
+  return Math.min(0.135, 0.015*(h-1)) + (heroTrinket('haendlersiegel') ? 0.02 : 0);
+}
+function heroSellRate(bd,k){ return sellRate(bd,k)*(1 + heroTradeBonus()); }
+function heroBuyRate(bd,k){
+  const b = buyRate(bd,k)*(1 - heroTradeBonus());
+  return Math.max(b, heroSellRate(bd,k)*1.05);       // HARTE Invariante: kein Perpetuum mobile
+}
+function openHeroTrade(bd){
+  const h = state.hero;
+  if (!h) return;
+  $('ipName').textContent = '🤝 Markt · Heldenhandel (Handel '+h.skills.h+')';
+  $('ipDesc').textContent = 'Kurs-Bonus ±'+(heroTradeBonus()*100).toFixed(1)+
+    ' % durch Handels-Geschick'+(heroTrinket('haendlersiegel') ? ' und Händlersiegel' : '')+
+    ' – jede Transaktion schult den Handel (1 EXP je 25 🪙 Umsatz).';
+  $('ipStats').textContent = '🪙 '+fmt(state.res.gold)+' · 🎒 '+bagCount()+'/'+heroCapacity();
+  const btns = $('ipBtns'); btns.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;margin-top:6px';
+  for (const k of ['holz','stein','nahrung','erz','eisen']){
+    const s = document.createElement('button');
+    s.className = 'btn-blue';
+    s.style.cssText = 'padding:6px 8px;font-size:12px;margin:0';
+    s.textContent = COSTICON[k]+'50 → 🪙'+Math.round(50*heroSellRate(bd,k));
+    s.addEventListener('click', ()=>{
+      if (state.res[k] < 50){ toast('Nicht genug '+COSTICON[k]+' zum Verkaufen.'); return; }
+      const v = Math.round(50*heroSellRate(bd,k));
+      state.res[k] -= 50; state.res.gold += v;
+      giveHeroExp('h', v/25);
+      snd(600,0.08,'triangle',0.04); openHeroTrade(bd); save();
+    });
+    const bb = document.createElement('button');
+    bb.className = 'btn-green';
+    bb.style.cssText = 'padding:6px 8px;font-size:12px;margin:0';
+    bb.textContent = '🪙'+Math.ceil(50*heroBuyRate(bd,k))+' → '+COSTICON[k]+'50';
+    bb.addEventListener('click', ()=>{
+      const cost = Math.ceil(50*heroBuyRate(bd,k));
+      if (state.res.gold < cost){ toast('Nicht genug Gold zum Einkaufen.'); return; }
+      state.res.gold -= cost; state.res[k] += 50;
+      giveHeroExp('h', cost/25);
+      snd(700,0.08,'triangle',0.04); openHeroTrade(bd); save();
+    });
+    wrap.appendChild(s); wrap.appendChild(bb);
+  }
+  btns.appendChild(wrap);
+  if (bagCount() > 0){
+    const eb = document.createElement('button');
+    eb.className = 'btn-blue';
+    eb.textContent = '🎒 Beutel leeren (+'+Math.round(bagValue())+' 🪙)';
+    eb.addEventListener('click', ()=>{ emptyBag(); openHeroTrade(bd); });
+    btns.appendChild(eb);
+  }
+  ui.info.style.display = 'block';
+}
+
+// --- Beutel-Sheet (🎒-Button im Ego) ---
+function showBagSheet(){
+  const h = state.hero;
+  if (!h) return;
+  $('ipName').textContent = '🎒 Beutel ('+bagCount()+'/'+heroCapacity()+')';
+  $('ipDesc').textContent = 'Nuggets, Edelsteine und Felle. Leeren am Markt, Rathaus oder in der '+
+    'Heldenhalle wandelt alles zu Gold – Nuggets zahlen auch direkt an der Schmiede.';
+  $('ipStats').textContent = h.bag.length
+    ? h.bag.map(s=>BAG_ITEMS[s.t].icon+' '+BAG_ITEMS[s.t].name+' ×'+s.n).join(' · ')+
+      ' · Wert '+Math.round(bagValue())+' 🪙'
+    : 'Der Beutel ist leer.'+(h.pfanne ? '' : ' Schmiede zuerst eine 🥄 Goldpfanne.');
+  const btns = $('ipBtns'); btns.innerHTML = '';
+  const inf = document.createElement('div');
+  inf.style.cssText = 'font-size:12px;color:#cfe0f0;margin-top:4px';
+  inf.textContent = equipLabel('w')+' · '+equipLabel('a')+' · '+equipLabel('t')+(h.pfanne?' · 🥄':'');
+  btns.appendChild(inf);
+  if (h.bag.length){
+    const near = nearDeliverBuilding();
+    if (near){
+      const eb = document.createElement('button');
+      eb.className = 'btn-green';
+      eb.textContent = '🎒 Beutel leeren (+'+Math.round(bagValue())+' 🪙)';
+      eb.addEventListener('click', ()=>{ emptyBag(); showBagSheet(); });
+      btns.appendChild(eb);
+    } else {
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:12px;color:#9aa7bb;margin-top:5px';
+      note.textContent = 'Zum Leeren: Markt, Rathaus oder Heldenhalle aufsuchen.';
+      btns.appendChild(note);
+    }
+  }
+  ui.info.style.display = 'block';
+}
+
+// --- Schürf-Spots: seed-deterministisch, Kiesbank-Optik, Erschöpfung + Sofort-Ersatz ---
+const mineGroup = new THREE.Group(); scene.add(mineGroup);
+let mineGlitter = [];
+let mining = null;                       // { spot, t, dur, auto }
+function findMineSpotTile(isleIdx, ctr){
+  const I = ISLES[isleIdx];
+  if (!I) return null;
+  const rng = mulberry32((state.seed ^ 0x9d2c17) + isleIdx*131071 + ctr*8191);
+  for (let tries=0;tries<400;tries++){
+    const a = rng()*Math.PI*2, r = rng()*I.r*1.15;
+    const x = Math.round(I.x + Math.cos(a)*r), y = Math.round(I.y + Math.sin(a)*r);
+    if (!inMap(x,y) || tiles[idx(x,y)]!==1) continue;               // Sand-/Uferkachel
+    const k = idx(x,y);
+    if (occ[k] || aiOcc[k] || treeMap[k] || rockMap[k]) continue;
+    if (isleParent[isleId[k]] !== isleIdx) continue;                // richtige Ursprungs-Insel
+    if (!walkable(x,y,false)) continue;
+    if (![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>
+      inMap(x+dx,y+dy) && tiles[idx(x+dx,y+dy)]===0)) continue;     // direkt am Wasser
+    if ((state.mineSpots||[]).some(s=>dist(s.x,s.y,x,y) < 3)) continue;
+    return [x,y];
+  }
+  return null;
+}
+function genMineSpots(){
+  state.mineSpots = [];
+  state.mineCtr = {};
+  for (let i=0;i<ISLES.length;i++){
+    const rng = mulberry32((state.seed ^ 0x51ab77) + i*7919);
+    const n = i===0 ? 3 : 2 + Math.floor(rng()*3);                  // Heimatinsel 3, sonst 2–4
+    let placed = 0, c = 0;
+    for (; c < n*8 && placed < n; c++){
+      const t2 = findMineSpotTile(i, c);
+      if (t2){ state.mineSpots.push({ x:t2[0], y:t2[1], isle:i, left:40, found:0 }); placed++; }
+    }
+    state.mineCtr[i] = c + 100;          // Fortsetzungszähler für deterministische Ersatz-Spots
+  }
+}
+function rebuildMineMeshes(){
+  disposeGroup(mineGroup);
+  mineGlitter = [];
+  for (const s of (state.mineSpots||[])){
+    if (s.left <= 0) continue;
+    const g = new THREE.Group();
+    const rng = mulberry32(s.x*73 + s.y*151);
+    for (let i=0;i<5;i++){                                          // helle Kiesel
+      const p = mesh(new THREE.IcosahedronGeometry(0.08+rng()*0.05,0), M.stoneLight, false, true);
+      p.position.set((rng()-0.5)*1.1, 0.02, (rng()-0.5)*1.1);
+      p.scale.y = 0.5; g.add(p);
+    }
+    const nug = mesh(new THREE.IcosahedronGeometry(0.07,0), M.gold, false, false);
+    nug.position.set((rng()-0.5)*0.6, 0.05, (rng()-0.5)*0.6);
+    g.add(nug);
+    const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map:puffTex, color:0xffd736,
+      transparent:true, opacity:0.8, depthWrite:false }));
+    gl.position.y = 0.32; gl.scale.setScalar(0.5);
+    g.add(gl);
+    g.position.set(wx(s.x), Math.max(hAt(s.x,s.y),0)+0.02, wz(s.y));
+    mineGroup.add(g);
+    mineGlitter.push({ spr:gl, ph:(s.x*3+s.y)%7 });
+  }
+}
+// Nach genMap/buildWorld und Terraforming: Spots validieren + Optik neu aufbauen
+function initMineSpots(){
+  if (!state) return;
+  if (!Array.isArray(state.mineSpots)) genMineSpots();
+  if (!state.mineCtr) state.mineCtr = {};
+  for (let i=state.mineSpots.length-1;i>=0;i--){                    // Kachel geflutet → Ersatz
+    const s = state.mineSpots[i];
+    if (inMap(s.x,s.y) && tiles[idx(s.x,s.y)] !== 0) continue;
+    state.mineSpots.splice(i,1);
+    state.mineCtr[s.isle] = (state.mineCtr[s.isle]||0) + 1;
+    const t2 = findMineSpotTile(s.isle, state.mineCtr[s.isle]);
+    if (t2) state.mineSpots.push({ x:t2[0], y:t2[1], isle:s.isle, left:s.left, found:0 });
+  }
+  rebuildMineMeshes();
+}
+function exhaustSpot(s){
+  const i = state.mineSpots.indexOf(s);
+  if (i >= 0) state.mineSpots.splice(i,1);
+  if (mining && mining.spot === s) mining = null;
+  state.mineCtr[s.isle] = (state.mineCtr[s.isle]||0) + 1;
+  const t2 = findMineSpotTile(s.isle, state.mineCtr[s.isle]);       // Sofort-Ersatz, gleiche Insel
+  if (t2) state.mineSpots.push({ x:t2[0], y:t2[1], isle:s.isle, left:40, found:0 });
+  rebuildMineMeshes();
+  toast('⛏️ Die Kiesbank ist erschöpft – anderswo am Ufer glitzert es neu!', 3400);
+  save();
+}
+function mineDur(auto){
+  let d = Math.max(1.8, 4*(1 - 0.07*(state.hero.skills.s - 1)));
+  if (heroTrinket('bergmannstalisman')) d *= 0.8;
+  return auto ? d/0.3 : d;               // Auto-Modus: 30 % der manuellen Rate
+}
+// Eine Schürfrunde gutschreiben (auch DBG.mineOnce); false = Beutel voll
+function mineRound(spot, auto){
+  const h = state.hero;
+  if (!h || !spot || spot.left <= 0) return false;
+  const gem = h.skills.s >= 5 && Math.random() < 0.10;
+  const wueste = (isleBiome[isleOf(spot.x,spot.y)]||'wiese') === 'wueste';
+  const t2 = gem ? 'gem' : (wueste ? 'wnugget' : 'nugget');
+  if (!bagAdd(t2, 1)) return false;
+  giveHeroExp('s', auto ? 2.5 : 5);      // Nugget = 5 EXP, Auto 50 %
+  spawnBurst(wx(spot.x), Math.max(hAt(spot.x,spot.y),0)+0.4, wz(spot.y), 4, gem ? 0x9fd4ff : 0xffd736);
+  snd(gem ? 880 : 640, 0.07, 'triangle', 0.03);
+  spot.left--;
+  if (spot.left <= 0) exhaustSpot(spot);
+  return t2;
+}
+function updateMining(dt){
+  const ring = $('egoRing');
+  if (!mining || !heroAlive()){
+    if (mining && !heroAlive()) mining = null;
+    ring.style.display = 'none';
+    return;
+  }
+  const s = mining.spot;
+  // Failsafes: Spot weg/erschöpft, Held segelt/entfernt sich, manuelle Bewegung bricht ab
+  if (!(state.mineSpots||[]).includes(s) || s.left <= 0 || hero.sail ||
+      dist(hero.x,hero.y,s.x,s.y) > 2.6 || (!mining.auto && hero.moving)){
+    mining = null; ring.style.display = 'none';
+    return;
+  }
+  if (bagCount() >= heroCapacity()){
+    if (!mining.auto) toast('🎒 Beutel voll – leere ihn am Markt, Rathaus oder in der Heldenhalle!', 3600);
+    mining = null; ring.style.display = 'none';
+    return;
+  }
+  mining.t += dt;
+  if (Math.random() < dt*1.6)
+    spawnBurst(wx(s.x), Math.max(hAt(s.x,s.y),0)+0.25, wz(s.y), 1, 0xffe08a);
+  if (mining.t >= mining.dur){
+    mining.t = 0;
+    mineRound(s, mining.auto);
+    if (mining) mining.dur = mineDur(mining.auto);      // Skill kann gestiegen sein
+  }
+  // Fortschrittsring um den Primär-Button (nur manuell im Ego)
+  if (egoMode && mining && !mining.auto){
+    ring.style.display = 'block';
+    ring.style.background = 'conic-gradient(#ffd736 ' +
+      Math.round(clamp(mining.t/mining.dur,0,1)*360) + 'deg, rgba(255,255,255,.16) 0deg)';
+  } else ring.style.display = 'none';
+}
+
+// --- Kegel-Zielsuche auf Wildtiere + Kontextlogik des Primär-Buttons ---
+function egoTargetWild(){
+  if (!heroAlive()) return null;
+  let best = null, bd2 = 2.51;
+  for (const a of wildlife){
+    const d = dist(hero.x,hero.y,a.x,a.y);
+    if (d >= bd2) continue;
+    const an = Math.atan2(a.y-hero.y, a.x-hero.x);
+    const da = Math.atan2(Math.sin(an-egoYaw), Math.cos(an-egoYaw));
+    if (Math.abs(da) > 35*Math.PI/180) continue;
+    bd2 = d; best = a;
+  }
+  return best;
+}
+function egoMineTarget(){
+  let best = null, bd2 = 2.51;
+  for (const s of (state.mineSpots||[])){
+    if (s.left <= 0) continue;
+    const d = dist(hero.x,hero.y,s.x,s.y);
+    if (d >= bd2) continue;
+    const an = Math.atan2(s.y-hero.y, s.x-hero.x);
+    const da = Math.atan2(Math.sin(an-egoYaw), Math.cos(an-egoYaw));
+    if (Math.abs(da) > 35*Math.PI/180 && d > 0.8) continue;   // direkt daneben zählt immer
+    bd2 = d; best = s;
+  }
+  return best;
+}
+function nearestInteractBuilding(types){
+  let best = null, bd2 = 1e9;
+  for (const bd of state.buildings){
+    if (bd.ruin || !types.includes(bd.t)) continue;
+    const c = buildingCenter(bd);
+    const d = dist(hero.x,hero.y,c[0],c[1]) - (BT[bd.t].w-1)*0.7;
+    if (d > 2.5 || d >= bd2) continue;
+    const an = Math.atan2(c[1]-hero.y, c[0]-hero.x);
+    const da = Math.atan2(Math.sin(an-egoYaw), Math.cos(an-egoYaw));
+    if (Math.abs(da) > 35*Math.PI/180 && d > 0.9) continue;
+    bd2 = d; best = bd;
+  }
+  return best;
+}
+// Priorität: Gegner > Wildtier > Schürf-Spot > Schmiede/Markt/Hafen
+function egoContext(){
+  if (!heroAlive() || hero.sail) return null;
+  const e = egoTargetEnemy();
+  if (e) return { act:'attack', icon:'⚔️', target:e };
+  const w = egoTargetWild();
+  if (w) return { act:'hunt', icon:'⚔️', target:w };
+  if (state.hero.pfanne){
+    const s = egoMineTarget();
+    if (s) return { act:'mine', icon:'⛏️', target:s };
+  }
+  const sm = nearestInteractBuilding(['schmiede','stahlwerk']);
+  if (sm) return { act:'smith', icon:'🔨', target:sm };
+  const mk = nearestInteractBuilding(['markt']);
+  if (mk) return { act:'trade', icon:'🤝', target:mk };
+  const hf = nearestInteractBuilding(['hafen']);
+  if (hf) return { act:'sail', icon:'⛵', target:hf };
+  return null;
+}
+// Primär-Aktion: führt die Kontextaktion des Fadenkreuz-Ziels aus
+function egoAction(){
+  if (!egoMode || !heroAlive() || hero.sail) return false;
+  const c = egoContext();
+  if (!c) return false;
+  if (c.act==='attack' || c.act==='hunt') return heroAttack();
+  if (c.act==='mine'){
+    if (mining){ mining = null; toast('⛏️ Schürfen abgebrochen.'); return true; }
+    mining = { spot:c.target, t:0, dur:mineDur(false), auto:false };
+    hero.dir = Math.atan2(c.target.y-hero.y, c.target.x-hero.x);
+    snd(500,0.06,'square',0.03);
+    return true;
+  }
+  if (c.act==='smith'){ openCraftSheet(c.target); return true; }
+  if (c.act==='trade'){ openHeroTrade(c.target); return true; }
+  if (c.act==='sail'){ openSailPick(); return true; }
+  return false;
+}
+
+// --- Hafen-Übersetzen im Ego: Ziel-Insel auf der Minimap wählen, startSail-Mechanik ---
+let sailPick = null;
+function openSailPick(){
+  sailPick = 1;
+  openMap();
+  toast('⛵ Tippe die ZIEL-Insel auf der Karte an!', 4200);
+}
+function egoSailTo(tx,ty){
+  if (!heroAlive() || hero.sail) return false;
+  const land = findLanding(Math.round(tx), Math.round(ty));
+  const ti = isleOf(land[0], land[1]);
+  if (!ti || ti === isleOf(hero.x,hero.y)){
+    toast('⛵ Wähle eine ANDERE Insel als Ziel.');
+    return false;
+  }
+  mining = null;
+  startSail(hero, land[0], land[1]);
+  toast('⛵ Ablegen! Der Held setzt über – die Kamera folgt dem Boot.', 3600);
+  snd(300,0.2,'triangle',0.05);
+  return true;
+}
+
+// ============================== WILDTIERE (Etappe 24b, Quest-Anhang 12.2-B) ==============================
+// Neutrale eigene Liste: 2 Arten je Biom (Flucht/Wehr), sparsame Spawns fern der Stadt.
+// Nicht gespeichert – der Spawner füllt die Caps nach dem Laden wieder auf.
+const WILD_ARTS = {
+  hase:        { name:'🐰 Hase',         biome:'wiese',  flee:1, hp:12, dmg:0,  sp:2.6, loot:{nahrung:4} },
+  wildschwein: { name:'🐗 Wildschwein',  biome:'wiese',  flee:0, hp:55, dmg:7,  sp:1.6, loot:{nahrung:10, fell:1} },
+  hirsch:      { name:'🦌 Hirsch',       biome:'wald',   flee:1, hp:30, dmg:0,  sp:2.8, loot:{nahrung:8, fell:1} },
+  wolf:        { name:'🐺 Wolf',         biome:'wald',   flee:0, hp:45, dmg:9,  sp:2.2, loot:{nahrung:2, fell:1} },
+  schneehase:  { name:'🐇 Schneehase',   biome:'schnee', flee:1, hp:12, dmg:0,  sp:2.6, loot:{nahrung:4} },
+  schneewolf:  { name:'🐺 Schneewolf',   biome:'schnee', flee:0, hp:60, dmg:11, sp:2.2, loot:{fell:2} },
+  wuestenfuchs:{ name:'🦊 Wüstenfuchs',  biome:'wueste', flee:1, hp:20, dmg:0,  sp:2.7, loot:{nahrung:3, fell:1} },
+  skorpion:    { name:'🦂 Skorpion',     biome:'wueste', flee:0, hp:50, dmg:12, sp:1.4, loot:{chitin:1} },
+  aschekaefer: { name:'🪲 Aschekäfer',   biome:'vulkan', flee:1, hp:25, dmg:0,  sp:1.8, loot:{erz:3} },
+  glutechse:   { name:'🦎 Glutechse',    biome:'vulkan', flee:0, hp:70, dmg:14, sp:1.8, loot:{glut:1} },
+};
+const WILD_CAP_GLOBAL = 28;
+let wildlife = [];
+let wildSpawnT = 10;                     // erster Schub kurz nach Start, danach 45-s-Takt
+const WM = {
+  wolf: std(0x9aa0a8), wolfD: std(0x6e747d), white: std(0xe9eef4),
+  hase: std(0xb99a76), fox: std(0xc8763a), boar: std(0x54402c), boarD: std(0x3a2d1e),
+  scorp: std(0xa07840), beetle: std(0x3c3c46), lizard: std(0xb85038),
+};
+for (const k in WM) WM[k].userData.shared = true;
+// Billige Vierbeiner (Varianten des Rentier-Prinzips); castShadow aus (Budget!)
+function quadruped(bodyMat, legMat, s, o){
+  o = o||{};
+  const g = new THREE.Group();
+  const body = mesh(new THREE.BoxGeometry(0.42,0.22,0.2), bodyMat, false);
+  body.position.y = 0.3; g.add(body);
+  const head = mesh(new THREE.BoxGeometry(0.14,0.15,0.13), bodyMat, false);
+  head.position.set(0.26,0.44,0); g.add(head);
+  if (o.snout){
+    const sn = mesh(new THREE.BoxGeometry(0.09,0.07,0.08), legMat, false);
+    sn.position.set(0.34,0.4,0); g.add(sn);
+  }
+  for (const [lx,lz] of [[-0.14,-0.06],[-0.14,0.06],[0.14,-0.06],[0.14,0.06]]){
+    const leg = mesh(new THREE.BoxGeometry(0.05,0.2,0.05), legMat, false);
+    leg.position.set(lx,0.1,lz); g.add(leg);
+  }
+  if (o.ears) for (const sz of [-1,1]){
+    const e = mesh(new THREE.BoxGeometry(0.03,o.ears,0.045), bodyMat, false);
+    e.position.set(0.24,0.55,sz*0.045); g.add(e);
+  }
+  if (o.tail){
+    const t2 = mesh(new THREE.BoxGeometry(o.tail,0.05,0.05), bodyMat, false);
+    t2.position.set(-0.25,0.35,0); t2.rotation.z = 0.45; g.add(t2);
+  }
+  if (o.antler) for (const sz of [-1,1]){
+    const a1 = mesh(new THREE.BoxGeometry(0.02,0.16,0.02), M.antler, false);
+    a1.position.set(0.23,0.58,sz*0.05); a1.rotation.z = -0.3; a1.rotation.x = sz*0.5; g.add(a1);
+  }
+  g.scale.setScalar(s);
+  return g;
+}
+function makeWild(art){
+  const g = new THREE.Group();
+  g.rotation.order = 'YXZ';
+  const inner = new THREE.Group();
+  inner.rotation.y = -Math.PI/2;         // Modelle zeigen +X → syncUnit erwartet +Z
+  g.add(inner);
+  let m = null;
+  if (art==='hase')             m = quadruped(WM.hase, WM.hase, 0.5, { ears:0.12, tail:0.06 });
+  else if (art==='schneehase')  m = quadruped(WM.white, WM.white, 0.5, { ears:0.12, tail:0.06 });
+  else if (art==='hirsch')      m = quadruped(M.deer, M.deerDark, 1.1, { snout:1, antler:1, tail:0.08 });
+  else if (art==='wolf')        m = quadruped(WM.wolf, WM.wolfD, 0.92, { ears:0.06, snout:1, tail:0.16 });
+  else if (art==='schneewolf')  m = quadruped(WM.white, WM.wolfD, 1.02, { ears:0.06, snout:1, tail:0.16 });
+  else if (art==='wildschwein') m = quadruped(WM.boar, WM.boarD, 0.95, { snout:1 });
+  else if (art==='wuestenfuchs')m = quadruped(WM.fox, WM.fox, 0.68, { ears:0.1, snout:1, tail:0.2 });
+  else if (art==='skorpion'){
+    m = new THREE.Group();
+    m.add(bx(0.4,0.12,0.26, WM.scorp, 0, 0.06));
+    for (const sz of [-1,1]) m.add(bx(0.14,0.08,0.09, WM.scorp, 0.26, 0.08, sz*0.14));  // Scheren
+    const tail = bx(0.26,0.07,0.07, WM.scorp, -0.28, 0.2);
+    tail.rotation.z = -0.7; m.add(tail);
+    m.add(bx(0.07,0.09,0.07, WM.boarD, -0.4, 0.3));                                     // Stachel
+  }
+  else if (art==='aschekaefer'){
+    m = new THREE.Group();
+    const dome = mesh(new THREE.SphereGeometry(0.2,7,5,0,Math.PI*2,0,Math.PI/2), WM.beetle, false);
+    dome.scale.set(1.25,0.8,1); dome.position.y = 0.05; m.add(dome);
+    m.add(bx(0.1,0.08,0.14, WM.boarD, 0.24, 0.02));
+  }
+  else { // glutechse
+    m = new THREE.Group();
+    m.add(bx(0.5,0.11,0.18, WM.lizard, 0, 0.03));
+    m.add(bx(0.14,0.09,0.12, WM.lizard, 0.3, 0.04));
+    const tail = bx(0.3,0.06,0.08, WM.lizard, -0.36, 0.04);
+    tail.rotation.y = 0.3; m.add(tail);
+    m.add(bx(0.16,0.03,0.1, M.fire, 0, 0.14));                     // Glut-Rücken
+  }
+  inner.add(m);
+  m.traverse(o=>{ if (o.isMesh) o.castShadow = false; });
+  // HP-Balken nur bei Schaden (wie Einheiten)
+  const bg = new THREE.Sprite(new THREE.SpriteMaterial({ color:0x101418, depthTest:false }));
+  bg.scale.set(0.5,0.07,1); bg.position.y = 0.85; bg.visible = false; g.add(bg);
+  const fg = new THREE.Sprite(new THREE.SpriteMaterial({ color:0xe0a54a, depthTest:false }));
+  fg.scale.set(0.48,0.05,1); fg.position.y = 0.85; fg.visible = false; g.add(fg);
+  g.userData.hp = [bg,fg];
+  fxGroup.add(g);
+  return g;
+}
+function farFromBuildings(x,y,r){
+  for (const bd of state.buildings){
+    const c = buildingCenter(bd);
+    if (dist(x,y,c[0],c[1]) < r) return false;
+  }
+  if (state.ai) for (const bd of state.ai.buildings){
+    const c = aiBuildingCenter(bd);
+    if (dist(x,y,c[0],c[1]) < r) return false;
+  }
+  return true;
+}
+function wildCapOf(p){ return 3 + Math.floor(((isleAreaP && isleAreaP[p])||0)/300); }
+function wildCountOf(p){ let n = 0; for (const a of wildlife) if (a.parent===p) n++; return n; }
+function findWildTile(p){
+  const I = ISLES[p];
+  if (!I) return null;
+  for (let tries=0;tries<60;tries++){
+    const a = Math.random()*Math.PI*2, r = Math.random()*I.r;
+    const x = Math.round(I.x + Math.cos(a)*r), y = Math.round(I.y + Math.sin(a)*r);
+    if (!inMap(x,y) || !walkable(x,y,false)) continue;
+    if (isleParent[isleId[idx(x,y)]] !== p) continue;
+    if (!farFromBuildings(x,y,10)) continue;                        // „fern der Stadt“
+    return [x,y];
+  }
+  return null;
+}
+function spawnWild(art, x, y){
+  const W = WILD_ARTS[art];
+  if (!W || !inMap(Math.round(x),Math.round(y))) return null;
+  const a = { art, x, y, sx:x, sy:y, hp:W.hp, maxhp:W.hp, cd:0, wait:Math.random()*3,
+    ph:Math.random()*7, dir:Math.random()*6, moving:false, speed:W.sp, fleeT:0,
+    aggro:false, parent: isleParent[isleOf(x,y)]||0, mesh: makeWild(art) };
+  wildlife.push(a);
+  return a;
+}
+function killWild(a){
+  const W = WILD_ARTS[a.art];
+  const city = {}, bagged = [];
+  for (const k in W.loot){
+    if (BAG_ITEMS[k]){                   // Felle & Co. in den Beutel (Tragkraft!)
+      const add = state.hero ? bagAdd(k, W.loot[k]) : 0;
+      const rest = W.loot[k] - add;
+      if (add) bagged.push(BAG_ITEMS[k].icon+'×'+add);
+      if (rest > 0) city.gold = (city.gold||0) + Math.round(rest*BAG_ITEMS[k].gold);   // Beutel voll → Gegenwert
+    } else city[k] = (city[k]||0) + W.loot[k];   // Nahrung/Erz sofort der Stadt
+  }
+  if (Object.keys(city).length) addLoot(city);
+  if (bagged.length) toast('🏹 Jagdbeute '+W.name+': '+bagged.join(' ')+' im Beutel', 3000);
+  spawnBurst(wx(a.x), Math.max(hAt(a.x,a.y),0)+0.3, wz(a.y), 6, 0xd8a05a);
+  snd(220,0.1,'square',0.03);
+  removeUnit(a);
+  const i = wildlife.indexOf(a);
+  if (i >= 0) wildlife.splice(i,1);
+}
+function updateWildlife(dt){
+  // Spawner: alle 45 s je Insel höchstens 1 Tier bis zum Cap (global 28)
+  wildSpawnT -= dt;
+  if (wildSpawnT <= 0){
+    wildSpawnT = 45;
+    for (let p=0;p<ISLES.length;p++){
+      if (wildlife.length >= WILD_CAP_GLOBAL) break;
+      if (wildCountOf(p) >= wildCapOf(p)) continue;
+      const t2 = findWildTile(p);
+      if (!t2) continue;
+      const bio = ISLES[p].biome||'wiese';
+      const arts = Object.keys(WILD_ARTS).filter(k=>WILD_ARTS[k].biome===bio);
+      if (arts.length) spawnWild(arts[(Math.random()*arts.length)|0], t2[0], t2[1]);
+    }
+  }
+  // Verhaltens-Schritt deckeln: große dt-Sprünge (Vorspulen/Ruckler) dürfen Tiere
+  // nicht über ihre Leine hinaus teleportieren
+  const bdt = Math.min(dt, 0.1);
+  for (const a of wildlife){
+    const W = WILD_ARTS[a.art];
+    a.cd = Math.max(0, a.cd - bdt);
+    // Wehr-Art: greift NUR ihren Angreifer (den Helden) an; Leine 8 Kacheln → Rückzug + Heilung
+    if (a.aggro && !W.flee){
+      if (!heroAlive() || hero.sail || dist(a.x,a.y,a.sx,a.sy) > 8){
+        a.aggro = false; a.ret = 1;
+      } else {
+        const d = dist(a.x,a.y,hero.x,hero.y);
+        if (d > 0.85){ a.moving = true; steer(a, hero.x, hero.y, a.speed, bdt); }
+        else {
+          a.moving = false;
+          a.dir = Math.atan2(hero.y-a.y, hero.x-a.x);
+          if (a.cd <= 0){
+            a.cd = 1.2;
+            hero.hp -= W.dmg;
+            spawnBurst(wx(hero.x), Math.max(hAt(hero.x,hero.y),0)+0.5, wz(hero.y), 3, 0xff8a5a);
+            snd(150,0.06,'square',0.03);
+          }
+        }
+        continue;
+      }
+    }
+    if (a.ret){                          // Rückzug zum Spawn-Ort, dann Voll-Heilung
+      a.moving = true;
+      if (steer(a, a.sx, a.sy, a.speed, bdt) || dist(a.x,a.y,a.sx,a.sy) < 0.8){
+        a.ret = 0; a.hp = a.maxhp; a.wait = 1 + Math.random()*3; a.moving = false;
+      }
+      continue;
+    }
+    if (W.flee){
+      // Flucht: Held oder Einheit < 4 Kacheln → 8 s vom Bedroher weg
+      let th = null;
+      if (heroAlive() && !hero.sail && dist(a.x,a.y,hero.x,hero.y) < 4) th = hero;
+      if (!th) for (const s2 of soldiers)
+        if (!s2.sail && dist(a.x,a.y,s2.x,s2.y) < 4){ th = s2; break; }
+      if (th){ a.fleeT = 8; a.fa = Math.atan2(a.y-th.y, a.x-th.x); }
+      if (a.fleeT > 0){
+        a.fleeT -= bdt;
+        a.moving = true;
+        steer(a, a.x + Math.cos(a.fa)*3, a.y + Math.sin(a.fa)*3, a.speed, bdt);
+        continue;
+      }
+    }
+    // Wandern um den Spawn-Ort (Leine 6 Kacheln, Warte-Phasen wie die Bewohner)
+    if (a.wait > 0){ a.wait -= bdt; a.moving = false; continue; }
+    if (a.tx === undefined || dist(a.x,a.y,a.tx,a.ty) < 0.5){
+      const an = Math.random()*Math.PI*2, r = Math.random()*6;
+      a.tx = a.sx + Math.cos(an)*r; a.ty = a.sy + Math.sin(an)*r;
+      if (!walkable(a.tx,a.ty,false)){ a.tx = a.sx; a.ty = a.sy; }
+    }
+    a.moving = true;
+    if (steer(a, a.tx, a.ty, a.speed*0.45, bdt) || Math.random() < 0.002){
+      a.tx = undefined; a.wait = 1.5 + Math.random()*4; a.moving = false;
+    }
+  }
+  // Erlegte Tiere: Beute gutschreiben (nur der Held jagt)
+  for (let i=wildlife.length-1;i>=0;i--)
+    if (wildlife[i].hp <= 0) killWild(wildlife[i]);
 }
 
 // ============================== RAUMFAHRT: PLANETEN-KOLONIEN ==============================
@@ -3710,7 +4712,7 @@ function updateAiGuards(dt){
     else g.moving = false;
   }
   aiGuards = aiGuards.filter(g=>{
-    if (g.hp<=0){ killLoot({kind:'ai'});
+    if (g.hp<=0){ killLoot({kind:'ai', heroKill:g.heroKill});
       spawnBurst(wx(g.x), hAt(g.x,g.y)+0.4, wz(g.y), 6, 0xff8a5a);
       removeUnit(g); return false; }
     return true;
@@ -4816,6 +5818,21 @@ function showBuildingInfo(bd){
       btns.appendChild(cb2);
     }
   }
+  // 🎒 Beutel leeren (Abgabepunkte): Held muss in der Nähe stehen
+  if ((bd.t==='markt' || bd.t==='rathaus' || bd.t==='heldenhalle') && state.hero && bagCount() > 0){
+    const eb2 = document.createElement('button');
+    eb2.className = 'btn-blue';
+    eb2.textContent = '🎒 Beutel leeren (+' + Math.round(bagValue()) + ' 🪙)';
+    eb2.addEventListener('click', ()=>{
+      const c2 = buildingCenter(bd);
+      if (!heroAlive() || dist(hero.x,hero.y,c2[0],c2[1]) - (BT[bd.t].w-1)*0.7 > 3.01){
+        toast('🎒 Der Held ist zu weit entfernt – er trägt den Beutel.');
+        return;
+      }
+      emptyBag(); showBuildingInfo(bd);
+    });
+    btns.appendChild(eb2);
+  }
   const uc = upgradeCost(bd);
   if (uc){
     const ub = document.createElement('button');
@@ -5022,9 +6039,14 @@ function updateHUD(dt){
       .map(([,k])=>COSTICON[k]+' '+fmt(state.res[k])).join(' · ');
     $('egoRes').textContent = '🪙 ' + fmt(state.res.gold) + (extra ? ' · ' + extra : '');
     $('egoHpFill').style.width = Math.round(100*clamp(hero.hp/(hero.maxhp||1),0,1)) + '%';
-    const tgt = egoTargetEnemy();
-    $('egoCross').style.background = tgt ? '#ff5a4e' : '#fff';
-    $('egoAct').style.display = tgt ? 'flex' : 'none';
+    // Primär-Button + Fadenkreuz folgen dem Kontext: rot = Angriff, gold = Interaktion
+    const ctx2 = egoContext();
+    $('egoCross').style.background = ctx2
+      ? (ctx2.act==='attack' || ctx2.act==='hunt' ? '#ff5a4e' : '#ffd75a') : '#fff';
+    const actBtn = $('egoAct');
+    actBtn.style.display = ctx2 ? 'flex' : 'none';
+    if (ctx2) actBtn.textContent = ctx2.icon;
+    $('egoAct2').style.display = hero.sail ? 'none' : 'flex';
     const nAtk = enemies.filter(e=>!e.sail).length;
     const bn = $('egoBanner');
     if (nAtk > 0){
@@ -5137,6 +6159,9 @@ function drawMinimap(){
       bd.t==='rathaus' ? 9 : (bd.t==='vorposten' ? 7 : 4));
   }
   for (const e of enemies) if (!e.sail) dot(e.x, e.y, '#ff9d2e', 6);
+  // entdeckte Schürf-Spots (gelb, ab Entdeckung durch den Helden)
+  for (const s of (state.mineSpots||[])) if (s.found && s.left > 0) dot(s.x, s.y, '#ffd736', 5);
+  if (state.hero && hero) dot(hero.x, hero.y, '#ffe9a0', 6);       // Held (gold)
   // aktueller Kamera-Ausschnitt
   const ctx0 = cam.tx/TL + C, cty0 = cam.tz/TL + C, half = (cam.dist*0.85)/TL;
   g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 2;
@@ -5148,11 +6173,16 @@ function openMap(){
   $('mapOv').style.display = 'flex';
 }
 $('btnMap').addEventListener('click', openMap);
-$('mapClose').addEventListener('click', ()=>{ $('mapOv').style.display = 'none'; });
+$('mapClose').addEventListener('click', ()=>{ sailPick = null; $('mapOv').style.display = 'none'; });
 $('mapCv').addEventListener('click', (e)=>{
-  // Tap-to-Jump: Kamera zum angetippten Punkt, Overlay schließt
   const r = e.currentTarget.getBoundingClientRect();
   const tx2 = (e.clientX - r.left)/r.width*MAP, ty2 = (e.clientY - r.top)/r.height*MAP;
+  // ⛵ Ziel-Insel-Wahl fürs Hafen-Übersetzen (Ego)
+  if (sailPick && egoMode){
+    if (egoSailTo(tx2, ty2)){ sailPick = null; $('mapOv').style.display = 'none'; }
+    return;
+  }
+  // Tap-to-Jump: Kamera zum angetippten Punkt, Overlay schließt
   cam.tx = wx(tx2); cam.tz = wz(ty2); clampCam();
   $('mapOv').style.display = 'none';
   snd(520,0.06,'sine',0.03);
@@ -5275,6 +6305,8 @@ function save(){
       fabHint: state.fabHint||0,
       kulturHint: state.kulturHint||0,
       hero: state.hero||null,
+      mineSpots: state.mineSpots||null,
+      mineCtr: state.mineCtr||null,
     }));
   }catch(_){}
 }
@@ -5317,11 +6349,19 @@ function load(){
     state.researchJob = d.researchJob || null;  // fehlend ⇒ keine laufende Forschung
     state.fabHint = d.fabHint || 0;
     state.kulturHint = d.kulturHint || 0;
-    // Held (Etappe 24a): Alt-Saves ohne Feld laden ohne Helden; Start immer im Auto-Modus
+    // Held (Etappe 24a/24b): Alt-Saves ohne Feld laden ohne Helden; Start immer im Auto-Modus
     state.hero = d.hero ? Object.assign(
       { name:'Held', x:SX, y:SY, hp:100, skills:{k:1,h:1,s:1,c:1}, exp:{k:0,h:0,s:0,c:0},
-        equip:{w:'holzknueppel',a:null,t:null}, bag:[], auto:1, respawn:0 }, d.hero) : null;
-    if (state.hero) state.hero.auto = 1;
+        equip:{w:'holzknueppel',a:null,t:null}, bag:[], auto:1, respawn:0, pfanne:0 }, d.hero) : null;
+    if (state.hero){
+      state.hero.auto = 1;
+      // 24a-Saves: fehlende 24b-Felder nachrüsten, Beutel-Stapel validieren
+      if (!Array.isArray(state.hero.bag)) state.hero.bag = [];
+      state.hero.bag = state.hero.bag.filter(s=>s && BAG_ITEMS[s.t] && s.n > 0);
+    }
+    // Schürf-Spots (24b): fehlen sie im Save, würfelt initMineSpots() sie seed-deterministisch
+    state.mineSpots = Array.isArray(d.mineSpots) ? d.mineSpots : null;
+    state.mineCtr = d.mineCtr || null;
     chronWaveRecord = state.wave>1 ? waveStrength(state.wave-1) : 0;   // Rekord neu seeden
     genMap(); buildWorld();
     for (const b of d.buildings){
@@ -5331,6 +6371,7 @@ function load(){
       if (b.r){ nb.ruin = true; nb.hp = 0; applyRuinVisual(nb); }
     }
     updateWalls();
+    initMineSpots();
     if (state.hero) spawnHeroUnit();     // Position wird auf findLanding korrigiert
     // Migration Etappe 21: Panzer/Flieger kommen jetzt aus Fabrik & Flugfeld (einmaliger Hinweis)
     if (!state.fabHint && state.buildings.some(b=>b.t==='kaserne' && lvlOf(b)>=16) &&
@@ -5384,6 +6425,7 @@ setInterval(save, 12000);
 function freshGame(){
   state = newState((Math.random()*1e9)|0);
   genMap(); buildWorld();
+  initMineSpots();
   addBuilding('rathaus', SX-1, SY-1, undefined, true);
   createAi();
   chronWaveRecord = 0;
@@ -5411,6 +6453,8 @@ function clearEntities(){
     if (hero.sail){ fxGroup.remove(hero.sail.boat); disposeGroup(hero.sail.boat); }
     removeUnit(hero); hero = null;
   }
+  for (const a of wildlife) removeUnit(a);
+  wildlife = []; wildSpawnT = 10; mining = null; sailPick = null;
   folk = []; soldiers = []; enemies = []; arrows = []; aiGuards = []; expeditions = [];
   spaceMissions = [];
   particles.length = 0; fallingTrees.length = 0;
@@ -5473,6 +6517,8 @@ function loop(now){
     updateEnemies(sdt);
     updateSoldiers(sdt);
     updateHero(sdt);
+    updateWildlife(sdt);
+    updateMining(sdt);
     updateAuras(sdt);
     updateTowers(sdt);
     updateArrows(sdt);
@@ -5493,7 +6539,18 @@ function loop(now){
   for (const s of soldiers) syncUnit(s, s.moving, t, dt);
   for (const e of enemies) syncUnit(e, e.moving, t, dt);
   for (const g of aiGuards) syncUnit(g, g.moving, t, dt);
-  if (heroAlive()) syncUnit(hero, hero.moving, t, dt);
+  for (const a of wildlife) syncUnit(a, a.moving, t, dt);
+  if (heroAlive()){
+    syncUnit(hero, hero.moving, t, dt);
+    // Hock-Animation beim Schürfen (im Ego ist die Figur ohnehin unsichtbar)
+    const hock = mining ? 0.72 : 1;
+    hero.mesh.scale.y += (hock - hero.mesh.scale.y)*Math.min(1, dt*6);
+  }
+  // Glitzer-Partikel der Schürf-Spots pulsieren
+  for (const g of mineGlitter){
+    g.spr.material.opacity = 0.45 + 0.4*Math.sin(t*3 + g.ph);
+    g.spr.scale.setScalar(0.38 + 0.16*Math.sin(t*2.2 + g.ph));
+  }
   for (const bd of state.buildings){
     if (!bd.workers) continue;
     for (const w of bd.workers){
@@ -5602,10 +6659,35 @@ setTimeout(()=>{
         if (dx) egoYaw += dx*0.22*Math.PI/180;
         if (dy) egoPitch = clamp(egoPitch - dy*0.18*Math.PI/180, -Math.PI/3, Math.PI/3);
       },
-      egoAction(){ return heroAttack(); },
+      egoAction(){ return egoAction(); },
       get egoStick(){return egoStick},
       giveHeroExp, heroKill(){ heroDie(); },
       heroMaxHp, heroDmg, heroLevel, heroSkillCap, heroHome, egoTargetEnemy,
       showHeroInfo, camera, heightAt:(x,y)=>hAt(x,y),
-      get speed(){return speed}, set speed(v){speed=v} };
+      get speed(){return speed}, set speed(v){speed=v},
+      // Etappe 24b: Schürfen, Crafting/Ausrüstung, Beutel, Handel, Hafen, Wildtiere
+      get mineSpots(){return state.mineSpots},
+      mineOnce(){
+        if (!state.hero || !state.hero.pfanne) return false;
+        let sp = mining ? mining.spot : null;
+        if (!sp){ let bd2 = 1e9;
+          for (const s of (state.mineSpots||[])){ if (s.left<=0) continue;
+            const d = hero ? dist(hero.x,hero.y,s.x,s.y) : 0;
+            if (d < bd2){ bd2 = d; sp = s; } } }
+        return sp ? mineRound(sp, false) : false;
+      },
+      advanceMining(sec){ updateMining(sec||1); },
+      get mining(){return mining}, mineDur, exhaustSpot, initMineSpots,
+      craftHero, craftGate, craftCost, craftDiscount, equipHero, itemValue,
+      HERO_ITEMS, BAG_ITEMS, bestSmithLvl,
+      get heroBag(){return state.hero ? state.hero.bag : null},
+      bagAdd, bagCount, bagValue, heroCapacity, emptyBag, nearDeliverBuilding,
+      heroSellRate, heroBuyRate, heroTradeBonus, openHeroTrade, openCraftSheet, showBagSheet,
+      heroSail(x,y){ return egoSailTo(x,y); }, openSailPick, get sailPick(){return sailPick},
+      egoContext, egoTargetWild, applyHeroEquipVisual, heroArmorHp, heroWeaponDmg,
+      get wildlife(){return wildlife},
+      spawnWildlife(art,x,y){ return spawnWild(art,x,y); },
+      clearWildlife(){ for (const a of wildlife) removeUnit(a); wildlife = []; },
+      wildTick(sec){ updateWildlife(sec||1); }, wildCapOf, WILD_ARTS, killWild,
+      get egoHands(){return egoHands} };
 }, 40);

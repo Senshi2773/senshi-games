@@ -170,6 +170,11 @@
   #egoAct { position:fixed; right:calc(env(safe-area-inset-right,0px) + 16px);
     bottom:calc(env(safe-area-inset-bottom,0px) + 96px); width:64px; height:64px;
     border-radius:50%; font-size:27px; display:none; z-index:16; }
+  #egoRing { position:fixed; right:calc(env(safe-area-inset-right,0px) + 11px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 91px); width:74px; height:74px;
+    border-radius:50%; z-index:15; display:none; pointer-events:none;
+    -webkit-mask:radial-gradient(circle, transparent 32px, #000 33px);
+    mask:radial-gradient(circle, transparent 32px, #000 33px); }
   #egoAct2 { position:fixed; right:calc(env(safe-area-inset-right,0px) + 20px);
     bottom:calc(env(safe-area-inset-bottom,0px) + 172px); width:56px; height:56px;
     border-radius:50%; font-size:23px; display:none; z-index:16; }
@@ -265,6 +270,7 @@
 <button class="sbtn" id="egoExit" title="Zur Stadt">🏙️</button>
 <div id="egoRes" class="panel">🪙 0</div>
 <div id="egoHp" class="panel">❤️<div id="egoHpBar"><div id="egoHpFill"></div></div></div>
+<div id="egoRing"></div>
 <button class="sbtn" id="egoAct" title="Aktion">⚔️</button>
 <button class="sbtn" id="egoAct2" title="Beutel">🎒</button>
 <div id="egoStick"><div id="egoKnob"></div></div>
@@ -306,7 +312,7 @@
     <button class="sbtn" id="mapClose" title="Schließen">✕</button>
     <h1 class="chron-title">🗺️ Inselwelt</h1>
     <canvas id="mapCv" width="512" height="512"></canvas>
-    <div class="map-hint">Tippen = dorthin springen &nbsp;·&nbsp; 🟡 Rathaus · ⚪ Gebäude · 🟢 Vorposten · 🔴 Ragnar · 🟠 Angreifer</div>
+    <div class="map-hint" id="mapHint">Tippen = dorthin springen &nbsp;·&nbsp; 🟡 Rathaus · ⚪ Gebäude · 🟢 Vorposten · 🔴 Ragnar · 🟠 Angreifer · ✨ Schürf-Spot</div>
   </div>
 </div>
 
