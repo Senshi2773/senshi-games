@@ -36,8 +36,8 @@ const BT = {
   haus:       { name:'Wohnhaus', cat:'eco', w:1, h:1, hp:130, cost:{holz:30}, cap:5, gold:0.06,
                 desc:'+5 Bevölkerung und zahlt Steuern.' },
   holzfaeller:{ name:'Holzfäller', cat:'eco', w:1, h:1, hp:110, cost:{holz:25},
-                gather:{res:'holz', amount:8}, needs:'tree', radius:5,
-                desc:'Arbeiter fällen automatisch Bäume im Einzugsgebiet.' },
+                gather:{res:'holz', amount:12, lvlAdd:4.5}, needs:'tree', radius:5, isleWide:true,
+                desc:'Arbeiter fällen automatisch Bäume auf der ganzen Insel – lange Wege kosten Zeit.' },
   steinbruch: { name:'Steinbruch', cat:'eco', w:1, h:1, hp:150, cost:{holz:50},
                 gather:{res:'stein', amount:5}, needs:'rock', radius:4,
                 desc:'Arbeiter bauen Felsen im Einzugsgebiet ab.' },
@@ -190,7 +190,7 @@ function bCap(bd){ if (!BT[bd.t].cap || bd.ruin) return 0;
 }
 function gatherWorkers(bd){ return Math.min(6, 1+lvlOf(bd)); }
 function gatherAmount(bd){
-  return Math.round((BT[bd.t].gather.amount + (lvlOf(bd)-1)*3) * (isEco()?1.2:1)
+  return Math.round((BT[bd.t].gather.amount + (lvlOf(bd)-1)*(BT[bd.t].gather.lvlAdd||3)) * (isEco()?1.2:1)
     * biomeBonus(bd, BT[bd.t].gather.res) * depotBonus(bd));
 }
 // --- Speicherhaus: Logistik-Aura (+15 % je Fuhre, +3 %/Stufe ab 2, Deckel +30 %) ---
@@ -434,6 +434,7 @@ function genMap(){
     if (rockMap[idx(x,y)]) rockList.push({x,y,v:rockMap[idx(x,y)],ph:r*7,s:0.8+rng2()*0.5});
   }
   computeIsles();                        // final: inkl. Terraforming-Änderungen
+  invalidateTreeCache();                 // neuer Baum-Bestand + neue Insel-IDs
 }
 // Insel-Zugehörigkeit jeder Landkachel (Flutfüllung) + Biom je Landmasse
 let isleId = null, isleBiome = null, isleParent = null, isleAreaP = null;
@@ -1656,6 +1657,7 @@ function fellTree(t, dirAngle){
   if (state.chopped.indexOf(k) < 0) state.chopped.push(k);
   state.regrown = (state.regrown||[]).filter(r=>!(r.x===t.x && r.y===t.y));
   treeList = treeList.filter(q=>q!==t);
+  invalidateTreeCache();
   state.buildings.forEach(recalcEff);
   hideTreeInstance(t);
   ensureTreeGeos();
@@ -1699,7 +1701,7 @@ function updateFallingTrees(dt){
   }
 }
 // Wald wächst nach – schneller in höheren Zeitaltern (Aufforstung),
-// bevorzugt in den Einzugsgebieten der Holzfäller
+// bevorzugt nahe der Holzfäller-Hütten und generell auf Inseln mit Holzfäller
 let regrowT = 12;
 function regrow(dt){
   regrowT -= dt;
@@ -1715,7 +1717,13 @@ function regrow(dt){
       nx = c.x + Math.round((Math.random()-0.5)*2*r);
       ny = c.y + Math.round((Math.random()-0.5)*2*r);
     } else if (treeList.length){
-      const src = treeList[Math.floor(Math.random()*treeList.length)];
+      // Streu-Saat: bevorzugt von Bäumen auf Inseln, die einen Holzfäller haben
+      let src = treeList[Math.floor(Math.random()*treeList.length)];
+      if (camps.length){
+        const isles = new Set(camps.map(c=>{ const cc = buildingCenter(c); return isleOf(cc[0],cc[1]); }));
+        const pool = treeList.filter(t=>isles.has(isleOf(t.x,t.y)));
+        if (pool.length) src = pool[Math.floor(Math.random()*pool.length)];
+      }
       nx = src.x + Math.round((Math.random()-0.5)*4);
       ny = src.y + Math.round((Math.random()-0.5)*4);
     } else {
@@ -1732,6 +1740,7 @@ function regrow(dt){
     const nt = {x:nx, y:ny, v, ph:Math.random()*7, ox:(Math.random()-0.5)*0.7,
       oy:(Math.random()-0.5)*0.7, s:0.6+Math.random()*0.35, b:bio, sn:bio==='schnee'};
     treeList.push(nt);
+    invalidateTreeCache();
     state.buildings.forEach(recalcEff);
     addTreeInstance(nt);
     break;
@@ -1770,6 +1779,24 @@ function flushLoot(dt){
 }
 
 // ============================== ARBEITER (Holzfäller/Steinbruch) ==============================
+const CHOPS_PER_TREE = 5;                  // Fuhren, bis ein Baum fällt (24g: 3 → 5)
+const noTreeHintT = {};                    // „Insel kahl"-Hinweis: letzter Zeitpunkt je Insel
+// Baum-Cache je Insel: Holzfäller suchen inselweit, aber nie pro Frame über alle 800 Bäume
+let treeCacheVer = 0, treeByIsle = null, treeCacheBuilt = -1;
+function invalidateTreeCache(){ treeCacheVer++; }
+function treesOnIsle(isle){
+  if (treeCacheBuilt !== treeCacheVer){
+    treeByIsle = new Map();
+    for (const t of treeList){
+      const id = isleId ? isleId[idx(t.x,t.y)] : 0;
+      let a = treeByIsle.get(id);
+      if (!a) treeByIsle.set(id, a = []);
+      a.push(t);
+    }
+    treeCacheBuilt = treeCacheVer;
+  }
+  return treeByIsle.get(isle) || [];
+}
 function releaseClaims(w){
   for (const t of treeList) if (t.claim===w) t.claim = null;
   for (const r of rockList) if (r.claim===w) r.claim = null;
@@ -1787,11 +1814,14 @@ function findGatherTarget(bd, w){
     const c = cands[Math.floor(Math.random()*cands.length)];
     return { x:c[0], y:c[1], fish:true };
   }
-  const list = bd.t==='holzfaeller' ? treeList : rockList;
+  // Holzfäller: ganze Insel als Einzugsgebiet (Laufweg bremst natürlich);
+  // Steinbruch bleibt bewusst beim Radius
+  const isleWide = b.isleWide;
+  const list = bd.t==='holzfaeller' ? (isleWide ? treesOnIsle(isleOf(cx0,cy0)) : treeList) : rockList;
   let best = null, bestD = 1e9;
   for (const o of list){
     if (o.claim && o.claim !== w) continue;
-    if (dist(o.x,o.y,cx0,cy0) > gatherRadius(bd)+0.01) continue;
+    if (!isleWide && dist(o.x,o.y,cx0,cy0) > gatherRadius(bd)+0.01) continue;
     const dw = dist(o.x,o.y,w.x,w.y);
     if (dw < bestD){ bestD = dw; best = o; }
   }
@@ -1825,11 +1855,23 @@ function updateWorker(bd, w, dt){
   switch (w.state){
     case 'idle':
       w.moving = false;
+      // Holzfäller ohne Baum: am Gebäude warten statt in der Pampa zappeln
+      if (bd.t==='holzfaeller' && dist(w.x,w.y,bcx,bcy) > 1.8){
+        w.moving = true; steer(w, bcx, bcy, 1.15, dt);
+      }
       w.timer -= dt;
       if (w.timer <= 0){
         w.timer = 0.9;
         const tgt = findGatherTarget(bd, w);
         if (tgt){ w.target = tgt; w.state = 'go'; }
+        else if (bd.t==='holzfaeller'){
+          w.timer = 2.5;                       // leer: seltener suchen
+          const isle = isleOf(bcx,bcy);        // Hinweis je Insel drosseln (nicht je Gebäude)
+          if (state.time - (noTreeHintT[isle]||-1e9) > 45){
+            noTreeHintT[isle] = state.time;
+            toast('🌳 Kein Baum mehr auf dieser Insel — der Wald wächst nach', 3400);
+          }
+        }
       }
       break;
     case 'go': {
@@ -1856,7 +1898,7 @@ function updateWorker(bd, w, dt){
         if (w.target.isTree){
           const t = w.target.obj;
           t.chops = (t.chops||0)+1;
-          if (t.chops >= 3) fellTree(t, Math.atan2(bcy-t.y, bcx-t.x));
+          if (t.chops >= CHOPS_PER_TREE) fellTree(t, Math.atan2(bcy-t.y, bcx-t.x));
         }
         w.carry = true; w.state = 'home';
       }
@@ -2121,6 +2163,7 @@ function applyTerraform(kind, x, y){
   }
   state.terra.push({ x, y, w: kind==='see' ? 0 : 2 });
   computeIsles();                    // Landbrücken/Seen ändern die Insel-Zugehörigkeit
+  invalidateTreeCache();             // Insel-IDs haben sich verschoben
   buildWorld();
   // Gebäude auf neue Geländehöhe setzen
   for (const bd of state.buildings){
@@ -7223,7 +7266,7 @@ function syncPlacing(){
   }
   for (;qi<4;qi++) tileQuads[qi].visible = false;
   gridLines.position.set(wx(placing.x), gy+0.04, wz(placing.y));
-  if (b.radius || b.tower){
+  if ((b.radius && !b.isleWide) || b.tower){   // Holzfäller: ganze Insel, kein irreführender Ring
     const r = (b.tower?b.tower.range:b.radius)*TL;
     rangeRing.visible = true;
     rangeRing.scale.set(r,r,1);
@@ -7351,12 +7394,19 @@ function showBuildingInfo(bd){
   }
   if (b.gather){
     const n = bd.workers ? bd.workers.length : 0;
-    const cnt = bd.t==='fischer' ? countWater(bd)
-      : countNear(bd.t==='holzfaeller'?treeMap:rockMap, bd.x, bd.y, b.w, b.h, gatherRadius(bd));
-    const icon = bd.t==='fischer' ? '🌊 ' : (bd.t==='holzfaeller' ? '🌳 ' : '🪨 ');
-    stats += ' · 👷 ' + n + '/' + gatherWorkers(bd) + ' · ' + icon + cnt +
-      ' im Gebiet (R' + gatherRadius(bd) + ')' + (cnt===0?' ⚠️':'') +
-      ' · ' + COSTICON[b.gather.res] + gatherAmount(bd) + '/Fuhre';
+    stats += ' · 👷 ' + n + '/' + gatherWorkers(bd);
+    if (bd.t==='holzfaeller'){
+      const c0 = buildingCenter(bd);
+      const cnt = treesOnIsle(isleOf(c0[0],c0[1])).length;
+      stats += ' · 🌳 ' + cnt + ' auf der Insel · Einzugsgebiet: ganze Insel' +
+        (cnt===0 ? ' · ⚠️ Kein Baum mehr auf dieser Insel — der Wald wächst nach' : '');
+    } else {
+      const cnt = bd.t==='fischer' ? countWater(bd)
+        : countNear(rockMap, bd.x, bd.y, b.w, b.h, gatherRadius(bd));
+      const icon = bd.t==='fischer' ? '🌊 ' : '🪨 ';
+      stats += ' · ' + icon + cnt + ' im Gebiet (R' + gatherRadius(bd) + ')' + (cnt===0?' ⚠️':'');
+    }
+    stats += ' · ' + COSTICON[b.gather.res] + gatherAmount(bd) + '/Fuhre';
   }
   if (b.cap) stats += ' · 👥 +' + bCap(bd);
   if (b.tower){ const ts = towerStats(bd); stats += ' · 🏹 Reichweite ' + ts.range + ' · 💥 ' + ts.dmg; }
@@ -8626,5 +8676,8 @@ setTimeout(()=>{
       egoMineTarget, ensureQuestWild, findQuestWildTile, findWildTile,
       questPreferredArt, enemyTick(sec){ updateEnemies(sec||0.1); },
       get wildSpawnT(){ return wildSpawnT; }, set wildSpawnT(v){ wildSpawnT = v; },
-      get PFANNE_HINT(){ return PFANNE_HINT; } };
+      get PFANNE_HINT(){ return PFANNE_HINT; },
+      // Etappe 24g: Holz-Ökonomie (inselweiter Holzfäller, Fuhren-Werte)
+      treesOnIsle, invalidateTreeCache, CHOPS_PER_TREE, gatherRadius,
+      workerTick(sec){ manageWorkers(sec||0.1); } };
 }, 40);
