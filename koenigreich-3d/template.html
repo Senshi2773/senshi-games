@@ -151,6 +151,39 @@
   #importTxt { width:100%; margin-top:8px; padding:8px; border-radius:9px; font-size:12px;
     background:rgba(255,255,255,.08); color:#e8eef8; border:1px solid rgba(255,255,255,.2);
     resize:vertical; user-select:text; -webkit-user-select:text; }
+  /* --- Ego-Modus (Etappe 24a) --- */
+  #egoCross { position:fixed; left:50%; top:50%; width:4px; height:4px; border-radius:50%;
+    background:#fff; transform:translate(-50%,-50%); z-index:15; display:none;
+    pointer-events:none; box-shadow:0 0 4px rgba(0,0,0,.7); }
+  #egoExit { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); right:8px;
+    z-index:16; display:none; }
+  #egoRes { position:fixed; top:calc(env(safe-area-inset-top,0px) + 8px); left:8px;
+    z-index:15; display:none; padding:7px 11px; font-size:13px; font-weight:600;
+    align-items:center; white-space:nowrap; }
+  #egoHp { position:fixed; bottom:calc(env(safe-area-inset-bottom,0px) + 14px); left:50%;
+    transform:translateX(-50%); width:200px; display:none; align-items:center; gap:7px;
+    z-index:15; padding:6px 11px; font-size:14px; }
+  #egoHpBar { flex:1; height:12px; border-radius:6px; background:rgba(255,255,255,.18);
+    overflow:hidden; }
+  #egoHpFill { height:100%; width:100%; background:#e0524a; border-radius:6px;
+    transition:width .2s linear; }
+  #egoAct { position:fixed; right:calc(env(safe-area-inset-right,0px) + 16px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 96px); width:64px; height:64px;
+    border-radius:50%; font-size:27px; display:none; z-index:16; }
+  #egoAct2 { position:fixed; right:calc(env(safe-area-inset-right,0px) + 20px);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 172px); width:56px; height:56px;
+    border-radius:50%; font-size:23px; display:none; z-index:16; }
+  #egoStick { position:fixed; width:96px; height:96px; border-radius:50%; z-index:16;
+    border:2px solid rgba(255,255,255,.45); background:rgba(255,255,255,.08);
+    display:none; pointer-events:none; transform:translate(-50%,-50%); }
+  #egoKnob { position:absolute; left:50%; top:50%; width:48px; height:48px;
+    border-radius:50%; background:rgba(255,255,255,.5);
+    transform:translate(-50%,-50%); }
+  #egoBanner { position:fixed; top:calc(env(safe-area-inset-top,0px) + 60px); left:50%;
+    transform:translateX(-50%); z-index:17; display:none; padding:9px 16px;
+    background:rgba(165,42,32,.93); border:1px solid #ff7a6a; border-radius:11px;
+    color:#fff; font-size:13.5px; font-weight:700; white-space:nowrap;
+    animation:pulse 1s infinite; cursor:pointer; }
   @media (max-width:479px){
     #topbar { flex-wrap:wrap; overflow-x:hidden; overflow-y:auto; row-gap:4px;
       max-height:88px; right:calc(8px + 102px); }
@@ -226,6 +259,16 @@
   </div>
   <div id="ipBtns"></div>
 </div>
+
+<!-- Ego-Modus-HUD (Etappe 24a) -->
+<div id="egoCross"></div>
+<button class="sbtn" id="egoExit" title="Zur Stadt">🏙️</button>
+<div id="egoRes" class="panel">🪙 0</div>
+<div id="egoHp" class="panel">❤️<div id="egoHpBar"><div id="egoHpFill"></div></div></div>
+<button class="sbtn" id="egoAct" title="Aktion">⚔️</button>
+<button class="sbtn" id="egoAct2" title="Beutel">🎒</button>
+<div id="egoStick"><div id="egoKnob"></div></div>
+<div id="egoBanner">⚠️ Angreifer! 🏙️ Zur Stadt</div>
 
 <div id="toasts"></div>
 

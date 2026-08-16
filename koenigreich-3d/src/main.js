@@ -93,12 +93,14 @@ const BT = {
                 desc:'Oberkommando (nur 1×): hebt den Armee-Deckel und flickt Befestigungen im Umkreis.' },
   theater:    { name:'Theater', cat:'infra', w:2, h:2, hp:260, cost:{holz:120,stein:180,gold:120,eisen:20}, kultur:[30,8], gold:0.1, req:13,
                 desc:'Die große Bühne: viel Kultur und etwas Gold aus dem Eintritt.' },
+  heldenhalle:{ name:'Heldenhalle', cat:'mil', w:2, h:2, hp:320, cost:{holz:120,stein:80,gold:50}, heroHall:true, req:3,
+                desc:'Rekrutiert einen Helden – tippe ihn an und steuere ihn aus der Ego-Perspektive.' },
   __see:      { name:'See ausheben', cat:'infra', w:1, h:1, hp:1, cost:{gold:25}, terra:'see',
                 desc:'Hebt einen kleinen See aus – Grundlage für Fischerei.' },
   __wiese:    { name:'Land aufschütten', cat:'infra', w:1, h:1, hp:1, cost:{stein:30,holz:15}, terra:'wiese',
                 desc:'Schüttet Wasser zu neuem Bauland auf.' },
 };
-const BUILDABLE = ['haus','holzfaeller','farm','fischer','gehege','steinbruch','mine','schmiede','speicher','markt','hafen','taverne','akademie','leuchtturm','theater','turm','mauer','tor','kaserne','lazarett','hq','fabrik','flugfeld','stahlwerk','bohrturm','raumhafen','__see','__wiese'];
+const BUILDABLE = ['haus','holzfaeller','farm','fischer','gehege','steinbruch','mine','schmiede','speicher','markt','hafen','taverne','akademie','leuchtturm','theater','turm','mauer','tor','kaserne','heldenhalle','lazarett','hq','fabrik','flugfeld','stahlwerk','bohrturm','raumhafen','__see','__wiese'];
 const COSTICON = { holz:'🪵', stein:'🪨', nahrung:'🌾', gold:'🪙', erz:'⛏️', eisen:'⚙️',
   stahl:'🔩', oel:'🛢️', lithium:'🔋' };
 const SOLDIER_COST = { nahrung:40, gold:15 };
@@ -156,6 +158,7 @@ const UPG = {
   lazarett:   [{holz:120,stein:90,gold:55},{holz:200,stein:150,gold:100},{holz:320,stein:240,gold:180},{holz:500,stein:380,gold:300,eisen:15}],
   theater:    [{holz:160,stein:240,gold:170,eisen:30},{holz:260,stein:380,gold:280,eisen:55},{holz:400,stein:580,gold:440,eisen:90},{holz:620,stein:880,gold:680,eisen:140}],
   hq:         [{stein:280,eisen:90,gold:150},{stein:430,eisen:140,gold:240},{stein:650,eisen:220,gold:380},{stein:980,eisen:340,gold:590}],
+  heldenhalle:[{holz:150,stein:100,gold:60},{holz:250,stein:170,gold:110},{holz:390,stein:270,gold:190,eisen:15},{holz:600,stein:420,gold:320,eisen:40}],
 };
 function rathausPopNeed(l){ return Math.round(8*l); }        // Bevölkerung für Rathaus-Stufe l+1
 const lvlOf = (bd)=>bd.lvl||1;
@@ -276,7 +279,9 @@ function satisfaction(){
   const towers = state.buildings.reduce((n,b)=>n+(b.t==='turm'?1:0), 0);
   // Luftpatrouille: jedes intakte Flugfeld zählt wie 3 Wachtürme
   const airf = state.buildings.reduce((n,b)=>n+(b.t==='flugfeld' && !b.ruin ?1:0), 0);
-  const safety = clamp((state.soldiersOwned + towers*2 + airf*6) / (2+Math.min(state.wave,40)*1.1), 0, 1);
+  // Der Held zählt fürs Sicherheitsgefühl fix wie 3 Soldaten (nicht wenn er am Boden liegt)
+  const heroN = (state.hero && !(state.hero.respawn>0)) ? 3 : 0;
+  const safety = clamp((state.soldiersOwned + heroN + towers*2 + airf*6) / (2+Math.min(state.wave,40)*1.1), 0, 1);
   const housing = cap<=0 ? 0.5 : clamp(1.6 - state.pop/cap, 0.55, 1);
   // Kultur wird erst ab Rathaus 6 zum Bedürfnis – Alt-Stände bleiben davor unverändert;
   // Sockel 0,3 („Feste auf dem Marktplatz“) verhindert den Deadlock ohne Kultur-Gebäude
@@ -921,6 +926,35 @@ function makeBuilding(t){
     const fl = mesh(new THREE.PlaneGeometry(0.42,0.24), std(0x3d6fb4,{side:THREE.DoubleSide}), false, false);
     fl.position.set(0.52,1.95,0.3); g.add(fl);
     g.add(bx(0.4,0.5,0.06, M.door, 0,-0.1,0.36));
+  }
+  else if (t==='heldenhalle'){
+    g.add(bx(3.6,0.3,3.6, M.stone, 0,-0.5,0));                     // Fundament
+    g.add(bx(3.1,0.4,3.1, M.stoneLight, 0.05,-0.3,-0.05));         // Podest
+    g.add(bx(2.6,1.35,1.9, M.plaster, 0.1,0.1,-0.45));             // Halle
+    for (const px of [-1.1,1.3]) g.add(bx(0.14,1.35,0.14, M.timber, px,0.1,-0.45));
+    g.add(bx(0.32,0.42,0.06, M.window, -0.6,0.65,0.51));
+    g.add(bx(0.32,0.42,0.06, M.window, 0.8,0.65,0.51));
+    g.add(prism(2.95,0.95,2.3, M.roofBlue, 0.1,1.45,-0.45));
+    // Säulenportal mit Architrav und Giebel
+    for (const px of [-0.85,-0.28,0.5,1.05]) g.add(cyl(0.09,0.11,1.25, M.stoneLight, px,0.1,0.85,7));
+    g.add(bx(2.3,0.18,0.55, M.stoneLight, 0.1,1.32,0.85));
+    g.add(prism(2.5,0.42,0.75, M.roofBlue, 0.1,1.5,0.85));
+    g.add(bx(0.62,0.92,0.07, M.door, 0.1,0.1,0.52));
+    g.add(bx(2.2,0.14,0.55, M.stone, 0.1,-0.14,1.3));              // Eingangsstufe
+    // Bannerstange mit goldenem Reichsbanner
+    g.add(cyl(0.028,0.028,1.7, M.timber, -1.45,0.9,1.2,5));
+    const bn = mesh(new THREE.PlaneGeometry(0.42,0.66), std(0xd8b02f,{side:THREE.DoubleSide}), false, false);
+    bn.position.set(-1.22,2.2,1.2); bn.name = 'flag'; g.add(bn);
+    // Heldenstatue auf Sockel vor der Halle
+    g.add(bx(0.44,0.5,0.44, M.stoneDark, 1.35,-0.3,1.25));
+    const st2 = new THREE.Group(); st2.position.set(1.35,0.2,1.25); st2.scale.setScalar(0.9);
+    st2.add(cyl(0.09,0.13,0.34, M.gold, 0,0,0,7));                 // Rumpf
+    const sh = mesh(new THREE.SphereGeometry(0.1,7,6), M.gold); sh.position.y = 0.46; st2.add(sh);
+    const sa = cyl(0.03,0.035,0.3, M.gold, 0.12,0.28,0,5);         // erhobener Schwertarm
+    sa.rotation.z = -0.85; st2.add(sa);
+    const sw2 = bx(0.035,0.34,0.02, M.gold, 0.29,0.45,0);
+    sw2.rotation.z = -0.2; st2.add(sw2);
+    g.add(st2);
   }
   else if (t==='markt'){
     // Marktplatz mit zwei Ständen
@@ -1973,6 +2007,7 @@ function waveStrength(w){ return (2+Math.floor(w)) * (1+0.12*(w-1)); }
 // --- Kamerafahrt beim Epochenwechsel: eine Orbit-Runde ums Rathaus (~4 s) ---
 let eraFlight = null;
 function startEraFlight(onDone){
+  if (egoMode){ if (onDone) onDone(); return; }  // Ego-Modus: keine Kamerafahrt (Chronik bleibt)
   cancelEraFlight();                             // laufende Fahrt sauber abschließen
   const rat = state && state.buildings.find(b=>b.t==='rathaus');
   if (!rat){ if (onDone) onDone(); return; }
@@ -2133,7 +2168,7 @@ function addBuilding(t,x,y,hp,noAnim){
 const PENNANT_Y = { haus:2.6, holzfaeller:2.0, steinbruch:1.8, farm:1.8, turm:3.4, kaserne:1.8,
   rathaus:5.4, fischer:2.0, gehege:1.4, mine:1.9, schmiede:2.1, markt:1.6, hafen:1.8, vorposten:2.3,
   mauer:1.5, tor:2.0, akademie:2.6, fabrik:2.3, flugfeld:1.9,
-  speicher:2.0, taverne:2.2, leuchtturm:3.9, lazarett:1.9, theater:2.8, hq:1.4 };
+  speicher:2.0, taverne:2.2, leuchtturm:3.9, lazarett:1.9, theater:2.8, hq:1.4, heldenhalle:2.8 };
 const PENNANT_COL = [0xd8b02f, 0x3fae5c, 0x3d6fb4, 0xb0463c];
 function applyLevelVisual(bd){
   const l = lvlOf(bd);
@@ -2390,6 +2425,9 @@ const PM = {
   hoodDark: std(0x33291f),
   enemyRing: new THREE.MeshBasicMaterial({ color:0xff4a3c, transparent:true, opacity:0.55,
     side:THREE.DoubleSide, depthWrite:false }),
+  heldBody: std(0x4a3f7d),
+  heldRing: new THREE.MeshBasicMaterial({ color:0xffd75a, transparent:true, opacity:0.55,
+    side:THREE.DoubleSide, depthWrite:false }),
 };
 for (const k in PM) PM[k].userData.shared = true;
 for (const m of SKIN_MATS) m.userData.shared = true;
@@ -2399,13 +2437,14 @@ function makePerson(kind, matIdx){
   const bodyMat = kind==='soldier' ? M.soldierBody :
     (kind==='aisoldier' ? PM.aiBody :
     (kind==='laser' ? PM.laserBody :
-    (kind==='ritter' ? M.steel : (kind==='enemy' ? M.enemyBody : FOLK_MATS[matIdx%FOLK_MATS.length]))));
+    (kind==='ritter' ? M.steel :
+    (kind==='held' ? PM.heldBody : (kind==='enemy' ? M.enemyBody : FOLK_MATS[matIdx%FOLK_MATS.length])))));
   const skin = SKIN_MATS[(Math.random()*SKIN_MATS.length)|0];   // bunt gemischte Hauttöne
   const legMat = kind==='ritter' ? M.steel :
     (kind==='laser' ? PM.laserDark : (kind==='enemy'||kind==='aisoldier' ? PM.pantsDark : PM.pants));
   // Rumpf (konisch, Schultern eingebacken) + Gürtel
   const body = mesh(torsoGeo, bodyMat); body.position.y = 0.38; g.add(body);
-  const belt = mesh(beltGeo, M.timber, false); belt.position.y = 0.27; g.add(belt);
+  const belt = mesh(beltGeo, kind==='held' ? M.gold : M.timber, false); belt.position.y = 0.27; g.add(belt);
   // Kopf (heller Hautton = Kontrast auf Distanz)
   const head = mesh(headGeo, skin); head.position.y = 0.645; head.scale.setScalar(1.04); g.add(head);
   // Benannte Glieder mit Drehpunkt an Schulter/Hüfte (für den Gang-Zyklus)
@@ -2453,6 +2492,19 @@ function makePerson(kind, matIdx){
     shield.position.set(-0.03,-0.11,0.02); shield.rotation.y = Math.PI/2; armL.add(shield);
     const boss = mesh(new THREE.CircleGeometry(0.05,8), M.gold, false, false);
     boss.position.set(-0.036,-0.11,0.02); boss.rotation.y = Math.PI/2; armL.add(boss);
+  } else if (kind==='held'){
+    // Goldener Umhang (eigene Geometrie, wird mit der Figur disposed)
+    const cape = mesh(new THREE.BoxGeometry(0.27,0.38,0.035), M.gold, false);
+    cape.position.set(0,0.44,-0.135); cape.rotation.x = 0.1; cape.name = 'cape'; g.add(cape);
+    const clasp = mesh(new THREE.SphereGeometry(0.03,6,5), M.gold, false);
+    clasp.position.set(0,0.55,0.11); g.add(clasp);
+    // Waffen-Anker 'wpn' (24b tauscht den Inhalt); Start: Holzknüppel
+    const wpn = new THREE.Group(); wpn.name = 'wpn'; armR.add(wpn);
+    const club = mesh(new THREE.CylinderGeometry(0.028,0.045,0.32,6), M.woodDark, false);
+    club.position.set(0.02,-0.2,0.05); club.rotation.x = 0.5; wpn.add(club);
+    // Goldener Bodenring statt HP-Dauerbalken
+    const ring = mesh(ringGeo, PM.heldRing, false, false);
+    ring.rotation.x = -Math.PI/2; ring.position.y = 0.06; g.add(ring);
   } else if (kind==='enemy'){
     const hood = mesh(hoodGeo, PM.hoodDark, false); hood.position.y = 0.665;
     hood.rotation.x = 0.12; g.add(hood);
@@ -2841,6 +2893,7 @@ function updateSail(u, dt){
 function updateAllSails(dt){
   for (const s of soldiers) if (s.sail) updateSail(s, dt);
   for (const e of enemies) if (e.sail) updateSail(e, dt);
+  if (hero && hero.sail) updateSail(hero, dt);
 }
 // Siedler-Expeditionen (gründen Vorposten)
 let expeditions = [];
@@ -2887,6 +2940,476 @@ function updateExpeditions(dt){
       save();
     }
   }
+}
+
+// ============================== HELD & EGO-MODUS (Etappe 24a) ==============================
+// state.hero = persistente Daten (Save v3, Default null); `hero` = Laufzeit-Einheit.
+let hero = null;
+let egoMode = false, egoBlend = 0, egoYaw = 0, egoPitch = 0, egoBobT = 0, handSwingT = 0;
+const egoStick = { x:0, y:0 };            // virtueller Joystick (-1..1, y = vorwärts)
+const HERO_A = ['Björn','Erik','Sigrid','Astrid','Leif','Runa','Torben','Freya','Halvar','Ylva','Sten','Ingrid'];
+const HERO_B = ['Eisenfaust','Sturmklinge','Bärenherz','Adlerauge','Nachtwind','Silberhand','Drachenmut','Steinschild','Wolfsblut','Morgenstern'];
+let pendingHeroName = null;
+function rollHeroName(){
+  pendingHeroName = HERO_A[(Math.random()*HERO_A.length)|0] + ' ' + HERO_B[(Math.random()*HERO_B.length)|0];
+  return pendingHeroName;
+}
+function reichName(){
+  const s = (state.chronicle||[]).find(e=>e.typ==='start');
+  const m = s && /Chronik von (.+) beginnt/.exec(s.text||'');
+  return m ? m[1] : 'deinem Reich';
+}
+const heroLevel = ()=> state.hero
+  ? state.hero.skills.k + state.hero.skills.h + state.hero.skills.s + state.hero.skills.c : 0;
+function heroMaxHp(){ return 100 + 12*(heroLevel()-4); }               // + Rüstungsbonus (24b)
+function heroWeaponDmg(){ return state.hero && state.hero.equip.w ? 8 : 5; }  // 24a: nur Holzknüppel
+function heroDmg(){
+  return heroWeaponDmg() * (1 + 0.08*((state.hero ? state.hero.skills.k : 1)-1)) * (isMil()?1.1:1);
+}
+function heroSkillCap(){ return Math.min(10, 3 + Math.floor(rathausLvl()/5)); }
+// EXP-Vergabe (24b nutzt sie; Kurve 60·n, Deckel an Rathausstufe gekoppelt)
+function giveHeroExp(skill, n){
+  const h = state.hero;
+  if (!h || h.skills[skill] === undefined) return;
+  h.exp[skill] = (h.exp[skill]||0) + n;
+  while (h.skills[skill] < heroSkillCap() && h.exp[skill] >= 60*h.skills[skill]){
+    h.exp[skill] -= 60*h.skills[skill];
+    h.skills[skill]++;
+    toast('✨ ' + h.name + ': Fertigkeit gestiegen (Heldenstufe ' + heroLevel() + ')!', 3200);
+  }
+  if (hero) hero.maxhp = heroMaxHp();
+}
+const heroAlive = ()=> !!(hero && state.hero && !(state.hero.respawn>0));
+function heroHome(){
+  const hall = state.buildings.find(b=>b.t==='heldenhalle' && !b.ruin);
+  const src = hall || state.buildings.find(b=>b.t==='rathaus');
+  if (!src) return [SX, SY];
+  const c = buildingCenter(src);
+  return findLanding(Math.round(c[0]), Math.round(c[1])+2);
+}
+function spawnHeroUnit(){
+  if (hero) removeUnit(hero);
+  const h = state.hero;
+  const l = findLanding(Math.round(h.x), Math.round(h.y));
+  hero = { x:l[0], y:l[1], hp: clamp(h.hp!==undefined?h.hp:heroMaxHp(), 0, heroMaxHp()),
+    maxhp: heroMaxHp(), cd:0, aggroT:0, lastHit:-1e9, ph:Math.random()*7, dir:0,
+    moving:false, speed:2.2, mesh: makePerson('held') };
+  hero.prevHp = hero.hp;
+  if (h.respawn > 0) hero.mesh.visible = false;
+  return hero;
+}
+function recruitHero(){
+  if (state.hero){ toast('Du hast bereits einen Helden.'); return false; }
+  const hall = state.buildings.find(b=>b.t==='heldenhalle' && !b.ruin);
+  if (!hall){ toast('🏛️ Baue zuerst eine Heldenhalle.'); return false; }
+  const name = pendingHeroName || rollHeroName();
+  pendingHeroName = null;
+  const c = buildingCenter(hall);
+  const l = findLanding(Math.round(c[0]), Math.round(c[1])+2);
+  state.hero = { name, x:l[0], y:l[1], hp:100, skills:{k:1,h:1,s:1,c:1}, exp:{k:0,h:0,s:0,c:0},
+    equip:{w:'holzknueppel',a:null,t:null}, bag:[], auto:1, respawn:0 };
+  state.hero.hp = heroMaxHp();
+  spawnHeroUnit();
+  chronicleAdd('held1', '⚔️ ' + name + ' trat in den Dienst von ' + reichName() + '.');
+  toast('⚔️ ' + name + ' ist bereit – tippe den Helden an, um ihn zu steuern!', 5200);
+  snd(392,0.12,'triangle',0.05); snd(523,0.18,'triangle',0.05);
+  save();
+  return true;
+}
+function heroDie(){
+  if (!state.hero || state.hero.respawn > 0 || !hero) return;
+  state.hero.respawn = 20;
+  if (egoMode) exitEgo();
+  if (hero.sail){ fxGroup.remove(hero.sail.boat); disposeGroup(hero.sail.boat); hero.sail = null; }
+  hero.hp = 0; hero.fallT = 0; hero.moving = false; hero.patrol = null;
+  spawnBurst(wx(hero.x), Math.max(hAt(hero.x,hero.y),0)+0.4, wz(hero.y), 8, 0xffd75a);
+  if (!chronicleHas('heldFall'))
+    chronicleAdd('heldFall', '🛡️ ' + state.hero.name + ' ging zu Boden – doch Helden stehen wieder auf.');
+  toast('🛡️ ' + state.hero.name + ' ist gefallen – kehrt in 20 s an der Heldenhalle zurück.', 4200);
+  snd(120,0.3,'sawtooth',0.05);
+}
+function heroRespawn(){
+  const h = state.hero;
+  const p = heroHome();
+  hero.x = p[0]; hero.y = p[1];
+  hero.maxhp = heroMaxHp();
+  hero.hp = Math.round(hero.maxhp*0.5);
+  hero.prevHp = hero.hp; hero.lastHit = -1e9; hero.fallT = 0; hero.moving = false;
+  hero.mesh.visible = true; hero.mesh.rotation.x = 0;
+  h.respawn = 0;
+  spawnBurst(wx(hero.x), Math.max(hAt(hero.x,hero.y),0)+0.5, wz(hero.y), 8, 0xffe9a0);
+  toast('⚔️ ' + h.name + ' ist zurück im Dienst!', 3000);
+}
+// --- Auto-Modus: Verteidigen → Angriffsbefehl-Mitmarsch → Patrouille ---
+function updateHeroAuto(dt){
+  // Priorität 1: Verteidigung (Soldaten-Logik-Muster)
+  let best = null, bd2 = 1e9;
+  for (const e of enemies){ if (e.sail) continue;
+    const d = dist(hero.x,hero.y,e.x,e.y); if (d<bd2){ bd2=d; best=e; } }
+  for (const g of aiGuards){
+    const d = dist(hero.x,hero.y,g.x,g.y);
+    if ((attackOrder || d < 5) && d < bd2){ bd2 = d; best = g; }
+  }
+  if (best && isleOf(best.x,best.y) !== isleOf(hero.x,hero.y)) best = null;
+  if (best){
+    hero.patrol = null;
+    if (bd2 > 0.85){ hero.moving = true; steer(hero, best.x, best.y, 2.2, dt); }
+    else {
+      hero.moving = false;
+      if (hero.cd<=0){
+        hero.cd = 0.8; hero.aggroT = 5;
+        hero.dir = Math.atan2(best.y-hero.y, best.x-hero.x);
+        best.hp -= heroDmg();
+        spawnBurst(wx(best.x), hAt(best.x,best.y)+0.5, wz(best.y), 3, 0xffd27a);
+        snd(200,0.05,'square',0.03);
+      }
+    }
+    return;
+  }
+  // Priorität 2: Angriffsbefehl – der Held marschiert mit (inkl. Boot)
+  if (attackOrder){
+    hero.patrol = null;
+    const tc = aiBuildingCenter(attackOrder);
+    if (isleOf(tc[0],tc[1]) !== isleOf(hero.x,hero.y)){
+      let haf = null, hd = 1e9;
+      for (const bd of state.buildings){
+        if (bd.t!=='hafen') continue;
+        const c = buildingCenter(bd);
+        if (isleOf(c[0],c[1]) !== isleOf(hero.x,hero.y)) continue;
+        const d = dist(hero.x,hero.y,c[0],c[1]);
+        if (d<hd){ hd=d; haf=bd; }
+      }
+      if (!haf){ hero.moving = false; return; }        // Soldaten-Failsafe meldet den fehlenden Hafen
+      const hc = buildingCenter(haf);
+      if (dist(hero.x,hero.y,hc[0],hc[1]) > 1.8){ hero.moving = true; steer(hero, hc[0], hc[1], 2.2, dt); }
+      else startSail(hero, tc[0], tc[1]);
+      return;
+    }
+    const reach = (BT[attackOrder.t].w-1)*0.7 + 0.95;
+    if (dist(hero.x,hero.y,tc[0],tc[1]) > reach){ hero.moving = true; steer(hero, tc[0], tc[1], 2.2, dt); }
+    else {
+      hero.moving = false;
+      if (hero.cd<=0){
+        hero.cd = 0.8;
+        attackOrder.hp -= heroDmg()*0.5;               // Leitplanke: Gebäudeschaden ×0,5
+        spawnBurst(wx(tc[0]), hAt(tc[0],tc[1])+0.7, wz(tc[1]), 3, 0xffd27a);
+        if (attackOrder.hp <= 0) destroyAiBuilding(attackOrder);
+      }
+    }
+    return;
+  }
+  // Heimweg von fremder Insel (nach Angriffen)
+  if (isleOf(hero.x,hero.y) !== isleOf(SX,SY) && !hero.sail){
+    const p = heroHome();
+    startSail(hero, p[0], p[1]);
+    return;
+  }
+  // Priorität 3: Patrouille zwischen Toren, Türmen und Heldenhalle
+  hero.wait = Math.max(0, (hero.wait||0) - dt);
+  if (hero.wait > 0){ hero.moving = false; return; }
+  if (!hero.patrol){
+    const pts = state.buildings.filter(b=>!b.ruin &&
+      (b.t==='tor' || b.t==='turm' || b.t==='heldenhalle'));
+    const onIsle = pts.filter(b=>{ const c = buildingCenter(b); return isleOf(c[0],c[1])===isleOf(hero.x,hero.y); });
+    const src = onIsle.length ? onIsle[(Math.random()*onIsle.length)|0]
+      : state.buildings.find(b=>b.t==='rathaus');
+    if (src){
+      const c = buildingCenter(src);
+      const a = Math.random()*Math.PI*2;
+      hero.patrol = findLanding(Math.round(c[0]+Math.cos(a)*1.8), Math.round(c[1]+Math.sin(a)*1.8));
+      hero.patNo = 0;
+    }
+  }
+  if (hero.patrol){
+    hero.moving = true;
+    const px = hero.x, py = hero.y;
+    const done = steer(hero, hero.patrol[0], hero.patrol[1], 1.4, dt);
+    // Anti-Festhäng: ohne Fortschritt neuen Patrouillenpunkt wählen
+    if (dist(hero.x,hero.y,px,py) < 1.4*dt*0.3) hero.patNo = (hero.patNo||0) + dt; else hero.patNo = 0;
+    if (done || dist(hero.x,hero.y,hero.patrol[0],hero.patrol[1]) < 0.9 || hero.patNo > 6){
+      hero.patrol = null;
+      hero.wait = 2 + Math.random()*4;
+      hero.moving = false;
+    }
+  } else hero.moving = false;
+}
+// --- Ego-Steuerung: Joystick-Bewegung mit walkable-Parität und Substeps ---
+function updateHeroEgo(dt){
+  const len = Math.min(1, Math.hypot(egoStick.x, egoStick.y));
+  if (len > 0.06){
+    const sp = len > 0.85 ? 3.2 : 2.2*len;             // Vollausschlag = Sprint
+    const fx = Math.cos(egoYaw), fz = Math.sin(egoYaw);
+    let vx = fx*egoStick.y - fz*egoStick.x, vy = fz*egoStick.y + fx*egoStick.x;
+    const vl = Math.hypot(vx,vy)||1; vx/=vl; vy/=vl;
+    const stepAll = sp*dt, n = Math.max(1, Math.ceil(stepAll/0.3));
+    let movedAny = false;
+    const tryMove = (dx,dy)=>{
+      const l2 = Math.hypot(dx,dy);
+      if (l2 < 1e-6) return false;
+      // Look-ahead 0,45 wie steer(): Wasser/Mauern blocken, Tore lassen durch
+      if (!walkable(hero.x + dx/l2*0.45, hero.y + dy/l2*0.45, false)) return false;
+      if (!walkable(hero.x + dx, hero.y + dy, false)) return false;
+      hero.x += dx; hero.y += dy;
+      return true;
+    };
+    for (let i=0;i<n;i++){
+      const s1 = stepAll/n;
+      if (tryMove(vx*s1, vy*s1) || tryMove(vx*s1, 0) || tryMove(0, vy*s1)) movedAny = true;
+      else break;
+    }
+    hero.moving = movedAny;
+    if (movedAny){ hero.dir = Math.atan2(vy,vx); egoBobT += dt*(3.2+sp*2.4); }
+  } else hero.moving = false;
+}
+function updateHero(dt){
+  const h = state.hero;
+  if (!h || !hero) return;
+  hero.cd = Math.max(0, hero.cd - dt);
+  hero.aggroT = Math.max(0, (hero.aggroT||0) - dt);
+  if (hero.hp < hero.prevHp) hero.lastHit = state.time;   // Treffer erkannt (Gegner schreiben hp direkt)
+  if (h.respawn > 0){
+    // Umfall-Animation, dann 20-s-Countdown bis zum Respawn
+    h.respawn -= dt;
+    if (hero.mesh.visible){
+      hero.fallT = (hero.fallT||0) + dt;
+      hero.mesh.rotation.x = -Math.min(1, hero.fallT/0.4)*Math.PI/2;
+      if (hero.fallT >= 0.8){ hero.mesh.visible = false; hero.mesh.rotation.x = 0; }
+    }
+    if (h.respawn <= 0) heroRespawn();
+    hero.prevHp = hero.hp;
+    h.x = hero.x; h.y = hero.y; h.hp = hero.hp;
+    return;
+  }
+  // Failsafe: Kachel unbegehbar geworden (Terraforming/Neubau) → nächste freie Kachel
+  if (!hero.sail && !walkable(hero.x, hero.y, false)){
+    const l = findLanding(Math.round(hero.x), Math.round(hero.y));
+    hero.x = l[0]; hero.y = l[1];
+  }
+  hero.maxhp = heroMaxHp();
+  if (hero.hp <= 0){ heroDie(); return; }
+  // Regeneration: 2 HP/s nach 5 s ohne Treffer (Lazarett-Aura wirkt zusätzlich)
+  if (hero.hp < hero.maxhp && state.time - hero.lastHit > 5)
+    hero.hp = Math.min(hero.maxhp, hero.hp + 2*dt);
+  if (hero.sail){ /* Überfahrt läuft in updateAllSails */ }
+  else if (egoMode && !h.auto) updateHeroEgo(dt);
+  else updateHeroAuto(dt);
+  hero.prevHp = hero.hp;
+  h.x = hero.x; h.y = hero.y; h.hp = hero.hp;
+}
+// --- Kegel-Zielhilfe: nächster Gegner ≤2,5 Kacheln und ±35° zur Blickrichtung ---
+function egoTargetEnemy(){
+  if (!heroAlive()) return null;
+  let best = null, bd2 = 2.51;
+  const scan = (e)=>{
+    const d = dist(hero.x,hero.y,e.x,e.y);
+    if (d >= bd2) return;
+    const a = Math.atan2(e.y-hero.y, e.x-hero.x);
+    const da = Math.atan2(Math.sin(a-egoYaw), Math.cos(a-egoYaw));
+    if (Math.abs(da) > 35*Math.PI/180) return;
+    bd2 = d; best = e;
+  };
+  for (const e of enemies) if (!e.sail) scan(e);
+  for (const g of aiGuards) scan(g);
+  return best;
+}
+// Primär-Aktion (24a: Basis-Schlag; 24b ergänzt Handeln/Schürfen/Schmieden …)
+function heroAttack(){
+  if (!egoMode || !heroAlive() || hero.cd > 0) return false;
+  const t2 = egoTargetEnemy();
+  if (!t2) return false;
+  hero.cd = 0.8; hero.aggroT = 5;
+  const a = Math.atan2(t2.y-hero.y, t2.x-hero.x);
+  hero.dir = a;
+  egoYaw += Math.atan2(Math.sin(a-egoYaw), Math.cos(a-egoYaw))*0.5;   // weiches Eindrehen zum Ziel
+  t2.hp -= heroDmg();
+  handSwingT = 0.25;
+  spawnBurst(wx(t2.x), hAt(t2.x,t2.y)+0.5, wz(t2.y), 4, 0xffd27a);
+  snd(190,0.06,'square',0.04);
+  return true;
+}
+// --- Ego-Hände: kameragebundene Low-Poly-Gruppe (Minecraft-Gefühl mit 3 Meshes) ---
+scene.add(camera);                       // nötig, damit Kamera-Kinder gerendert werden
+const egoHands = new THREE.Group();
+egoHands.visible = false;
+let egoHandR = null;
+{
+  // Hände eng am Bildrand: Portrait-Frustum ist schmal (Aspect < 0,5)
+  const handGeo = new THREE.BoxGeometry(0.075,0.075,0.15);
+  const hl = mesh(handGeo, M.skin, false, false);
+  hl.position.set(-0.105,-0.2,-0.42); hl.rotation.set(0.3,0.15,0);
+  egoHands.add(hl);
+  egoHandR = new THREE.Group();
+  egoHandR.position.set(0.105,-0.2,-0.42);
+  const hr = mesh(handGeo, M.skin, false, false);
+  hr.rotation.set(0.3,-0.15,0);
+  egoHandR.add(hr);
+  const club = mesh(new THREE.CylinderGeometry(0.02,0.034,0.3,6), M.woodDark, false, false);
+  club.position.set(0.015,0.09,-0.1); club.rotation.x = -0.9;
+  egoHandR.add(club);
+  egoHands.add(egoHandR);
+  camera.add(egoHands);
+}
+// --- Ego-HUD sichtbar schalten; Stadt-UI ausblenden (Baumenü/Minimap/Speed & Co.) ---
+function setEgoUI(on){
+  for (const id of ['btnBuild','btnMap','btnSpeed','btnChron','btnMenu','btnSound'])
+    $(id).style.display = on ? 'none' : '';
+  $('topbar').style.display = on ? 'none' : '';
+  ui.wavebar.style.display = on ? 'none' : '';
+  if (on) ui.hint.style.display = 'none';
+  for (const id of ['egoExit','egoHp','egoRes']) $(id).style.display = on ? 'flex' : 'none';
+  $('egoCross').style.display = on ? 'block' : 'none';
+  if (!on)
+    for (const id of ['egoAct','egoAct2','egoBanner','egoStick']) $(id).style.display = 'none';
+}
+function enterEgo(){
+  if (egoMode) return true;
+  if (!gameStarted || gameOver || !state || !state.hero || !hero ||
+      state.hero.respawn > 0 || hero.sail) return false;
+  egoMode = true;
+  state.hero.auto = 0;
+  egoYaw = hero.dir||0; egoPitch = 0; egoBobT = 0; handSwingT = 0;
+  egoStick.x = 0; egoStick.y = 0;
+  cancelEraFlight(); cancelPlacing(); hideInfo(); selected = null; hideSelQuads(); closeBuildSheet();
+  if (speed > 1){ speed = 1; $('btnSpeed').textContent = '▶'; }   // Simulation fest auf 1×
+  hero.mesh.visible = false;
+  egoHands.visible = true;
+  setEgoUI(true);
+  snd(420,0.08,'sine',0.03);
+  return true;
+}
+function exitEgo(){
+  if (!egoMode) return false;
+  egoMode = false;
+  if (state.hero) state.hero.auto = 1;   // Held macht alleine weiter
+  egoStick.x = 0; egoStick.y = 0;
+  egoPtr.clear();
+  if (hero) hero.mesh.visible = !(state.hero && state.hero.respawn > 0);
+  setEgoUI(false);
+  return true;
+}
+// --- Ego-Touch: dynamischer Joystick links, Blick-Drag rechts, Tap = Kontextaktion ---
+const egoPtr = new Map();
+function egoPointerDown(e){
+  cv.setPointerCapture(e.pointerId);
+  const W = window.innerWidth, H = window.innerHeight;
+  const stickTaken = [...egoPtr.values()].some(p=>p.role==='stick');
+  const role = (!stickTaken && e.clientX < W*0.45 && e.clientY > H*0.35) ? 'stick' : 'look';
+  egoPtr.set(e.pointerId, { role, sx:e.clientX, sy:e.clientY, x:e.clientX, y:e.clientY,
+    t:performance.now(), moved:false });
+  if (role==='stick'){
+    const st = $('egoStick');
+    st.style.display = 'block';
+    st.style.left = e.clientX+'px'; st.style.top = e.clientY+'px';
+    $('egoKnob').style.transform = 'translate(-50%,-50%)';
+  }
+}
+function egoPointerMove(e){
+  const p = egoPtr.get(e.pointerId);
+  if (!p) return;
+  const dx = e.clientX-p.x, dy = e.clientY-p.y;
+  if (Math.abs(e.clientX-p.sx)+Math.abs(e.clientY-p.sy) > 9) p.moved = true;
+  p.x = e.clientX; p.y = e.clientY;
+  if (p.role==='stick'){
+    let jx = (e.clientX-p.sx)/48, jy = (e.clientY-p.sy)/48;   // Knopfradius 48 px = Vollausschlag
+    const l = Math.hypot(jx,jy);
+    if (l > 1){ jx/=l; jy/=l; }
+    egoStick.x = jx; egoStick.y = -jy;                        // Bildschirm-hoch = vorwärts
+    $('egoKnob').style.transform = 'translate(-50%,-50%) translate('+(jx*48)+'px,'+(jy*48)+'px)';
+  } else {
+    egoYaw += dx*0.22*Math.PI/180;                            // 0,22°/px Yaw
+    egoPitch = clamp(egoPitch - dy*0.18*Math.PI/180, -Math.PI/3, Math.PI/3);   // ±60°
+  }
+}
+function egoPointerUp(e){
+  const p = egoPtr.get(e.pointerId);
+  egoPtr.delete(e.pointerId);
+  if (!p) return;
+  if (p.role==='stick'){
+    egoStick.x = 0; egoStick.y = 0;
+    $('egoStick').style.display = 'none';
+  } else if (!p.moved && performance.now()-p.t < 200){
+    heroAttack();                        // Tap = Kontext-Interaktion aufs Fadenkreuz-Ziel
+  }
+}
+$('egoExit').addEventListener('click', ()=>exitEgo());
+$('egoAct').addEventListener('click', ()=>heroAttack());
+$('egoBanner').addEventListener('click', ()=>{
+  // Zur Stadt: Orbit-Kamera zentriert auf den nächsten Angreifer, Held → Auto-Modus
+  let best = null, bd2 = 1e9;
+  const hx = hero ? hero.x : SX, hy = hero ? hero.y : SY;
+  for (const e of enemies){ if (e.sail) continue;
+    const d = dist(e.x,e.y,hx,hy); if (d<bd2){ bd2=d; best=e; } }
+  exitEgo();
+  if (best){ cam.tx = wx(best.x); cam.tz = wz(best.y); clampCam(); }
+});
+// --- Kamera: Orbit ↔ Ego mit 0,6-s-Blende, FOV 46→70, Near 0,5→0,08 ---
+const _egoCam = new THREE.PerspectiveCamera();
+const _fromPos = new THREE.Vector3(), _fromQ = new THREE.Quaternion();
+function egoView(){
+  const bob = hero && hero.moving ? Math.sin(egoBobT)*0.02 : 0;   // Kopf-Bobbing ±0,02
+  const ex = wx(hero.x), ez = wz(hero.y);
+  const ey = Math.max(hAt(hero.x,hero.y),0) + 0.62 + bob;         // Augenhöhe
+  _egoCam.position.set(ex,ey,ez);
+  const cp = Math.cos(egoPitch);
+  _egoCam.lookAt(ex + Math.cos(egoYaw)*cp, ey + Math.sin(egoPitch), ez + Math.sin(egoYaw)*cp);
+}
+function updateCamCombined(dt){
+  if (!egoMode && egoBlend <= 0){
+    if (camera.near !== 0.5){
+      camera.near = 0.5; camera.fov = 46; camera.updateProjectionMatrix();
+      egoHands.visible = false;
+    }
+    updateCam();
+    return;
+  }
+  egoBlend = clamp(egoBlend + (egoMode?1:-1)*dt/0.6, 0, 1);
+  updateCam();                             // Orbit-Sicht als Blend-Basis
+  _fromPos.copy(camera.position); _fromQ.copy(camera.quaternion);
+  if (hero) egoView();
+  const s = egoBlend*egoBlend*(3-2*egoBlend);
+  camera.position.lerpVectors(_fromPos, _egoCam.position, s);
+  camera.quaternion.slerpQuaternions(_fromQ, _egoCam.quaternion, s);
+  camera.fov = lerp(46,70,s);
+  camera.near = 0.08;
+  camera.updateProjectionMatrix();
+  // Ego-Hände: dezentes Mitwippen + Schwung-Animation (0,25 s) bei Aktion
+  egoHands.position.y = hero && hero.moving ? Math.sin(egoBobT*0.9)*0.012 : 0;
+  if (handSwingT > 0){
+    handSwingT = Math.max(0, handSwingT - dt);
+    const p = 1 - handSwingT/0.25;
+    egoHandR.position.z = -0.42 - Math.sin(p*Math.PI)*0.2;
+    egoHandR.rotation.x = -Math.sin(p*Math.PI)*0.9;
+  } else { egoHandR.position.z = -0.42; egoHandR.rotation.x = 0; }
+  if (!egoMode && egoBlend <= 0){
+    camera.near = 0.5; camera.fov = 46; camera.updateProjectionMatrix();
+    egoHands.visible = false;
+  }
+}
+// --- Helden-Panel (Tap auf den Helden in der Stadtansicht) ---
+function showHeroInfo(){
+  const h = state.hero;
+  if (!h) return;
+  $('ipName').textContent = '⚔️ ' + h.name + ' · Heldenstufe ' + heroLevel();
+  $('ipDesc').textContent = 'Dein Held – steuere ihn aus der Ego-Perspektive oder lass ihn selbstständig patrouillieren und verteidigen.';
+  $('ipStats').textContent = '❤️ ' + Math.ceil(hero?hero.hp:h.hp) + '/' + heroMaxHp() +
+    ' · 💥 ' + Math.round(heroDmg()) + ' · 🥾 2,2' +
+    ' · ⚔️' + h.skills.k + ' 🤝' + h.skills.h + ' ⛏️' + h.skills.s + ' 🔨' + h.skills.c;
+  const btns = $('ipBtns'); btns.innerHTML = '';
+  const sb = document.createElement('button');
+  sb.className = 'btn-green'; sb.textContent = '🎮 Steuern (Ego-Modus)';
+  sb.addEventListener('click', ()=>{ hideInfo(); selected = null; hideSelQuads(); enterEgo(); });
+  btns.appendChild(sb);
+  const hb = document.createElement('button');
+  hb.className = 'btn-blue'; hb.textContent = '🏛️ Zur Heldenhalle';
+  hb.addEventListener('click', ()=>{
+    const hall = state.buildings.find(b=>b.t==='heldenhalle');
+    if (!hall){ toast('Keine Heldenhalle vorhanden.'); return; }
+    const c = buildingCenter(hall);
+    cam.tx = wx(c[0]); cam.tz = wz(c[1]); clampCam();
+    hideInfo(); selected = null; hideSelQuads();
+  });
+  btns.appendChild(hb);
+  ui.info.style.display = 'block';
 }
 
 // ============================== RAUMFAHRT: PLANETEN-KOLONIEN ==============================
@@ -3074,6 +3597,7 @@ function destroyAiBuilding(bd){
 function aiDefeated(){
   const ai = state.ai;
   ai.defeated = true;
+  if (egoMode) exitEgo();                // Sieg erzwingt die Stadtansicht
   for (const bd of [...ai.buildings]) {
     if (bd.mesh){ aiGroup.remove(bd.mesh); disposeGroup(bd.mesh); }
     const [cx,cy] = aiBuildingCenter(bd);
@@ -3172,6 +3696,10 @@ function updateAiGuards(dt){
     g.cd = Math.max(0, g.cd-dt);
     let best = null, bd2 = 1e9;
     for (const s of soldiers){ const d = dist(g.x,g.y,s.x,s.y); if (d<bd2){bd2=d;best=s;} }
+    if (heroAlive() && !hero.sail){
+      const d = dist(g.x,g.y,hero.x,hero.y);
+      if (d<bd2){ bd2=d; best=hero; }
+    }
     const baseD = dist(g.x,g.y,ai.x,ai.y);
     if (best && bd2 < 7 && baseD < 11){
       if (bd2 > 0.75){ g.moving = true; steer(g, best.x, best.y, 1.5, dt); }
@@ -3288,6 +3816,11 @@ function updateEnemies(dt){
     e.cd = Math.max(0,e.cd-dt);
     let target = null, tIsUnit = false, bd2 = 1e9;
     for (const s of soldiers){ const d = dist(e.x,e.y,s.x,s.y); if (d<4 && d<bd2){bd2=d;target=s;tIsUnit=true;} }
+    // Held wird erst fokussiert, wenn er angreift (aggroT) oder sehr nah steht
+    if (heroAlive() && !hero.sail){
+      const d = dist(e.x,e.y,hero.x,hero.y);
+      if (d < (hero.aggroT>0 ? 4 : 2) && d < bd2){ bd2 = d; target = hero; tIsUnit = true; }
+    }
     if (!target){
       for (const bd of state.buildings){
         if (BT[bd.t].wall || bd.ruin) continue;      // Mauern/Ruinen sind kein primäres Ziel
@@ -3407,6 +3940,7 @@ function destroyBuilding(bd){
   const name = BT[bd.t].name;
   snd(90,0.4,'sawtooth',0.07);
   if (bd.t==='rathaus'){
+    if (egoMode) exitEgo();              // Game Over erzwingt die Stadtansicht
     removeBuilding(bd);
     toast('💥 ' + name + ' wurde zerstört!');
     if (selected && selected.kind==='building' && selected.bd===bd){ hideInfo(); selected=null; }
@@ -3587,7 +4121,8 @@ function updateAuras(dt){
     laz.push({ x:c[0], y:c[1], isle:isleOf(c[0],c[1]),
       rate:(2+(lvlOf(bd)-1)) * (biomeOfBuilding(bd)==='schnee' ? 1.25 : 1) });
   }
-  if (laz.length) for (const s of soldiers){
+  const healUnits = heroAlive() ? soldiers.concat([hero]) : soldiers;   // Lazarett heilt auch den Helden
+  if (laz.length) for (const s of healUnits){
     if (s.sail || s.hp >= s.maxhp) continue;
     let best = null, bd2 = 8.01;       // nur das nächste Lazarett zählt
     for (const L of laz){
@@ -3679,6 +4214,7 @@ function pickGround(sx,sy){
   return [Math.round(p.x/TL + C), Math.round(p.z/TL + C), p];
 }
 cv.addEventListener('pointerdown', (e)=>{
+  if (egoMode){ egoPointerDown(e); return; }   // Ego: Joystick/Blick statt Orbit
   cancelEraFlight();                 // Eingabe bricht die Epochen-Kamerafahrt sofort ab
   cv.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, {x:e.clientX, y:e.clientY, sx:e.clientX, sy:e.clientY, moved:false});
@@ -3689,6 +4225,7 @@ cv.addEventListener('pointerdown', (e)=>{
   tapInfo = { t: performance.now() };
 });
 cv.addEventListener('pointermove', (e)=>{
+  if (egoMode){ egoPointerMove(e); return; }
   const p = pointers.get(e.pointerId); if (!p) return;
   const dx = e.clientX-p.x, dy = e.clientY-p.y;
   if (Math.abs(e.clientX-p.sx)+Math.abs(e.clientY-p.sy) > 9) p.moved = true;
@@ -3709,6 +4246,7 @@ cv.addEventListener('pointermove', (e)=>{
   }
 });
 function endPointer(e){
+  if (egoMode){ egoPointerUp(e); return; }
   const p = pointers.get(e.pointerId);
   pointers.delete(e.pointerId);
   if (pointers.size<2) twoInfo = null;
@@ -3716,9 +4254,12 @@ function endPointer(e){
     handleTap(e.clientX, e.clientY);
 }
 cv.addEventListener('pointerup', endPointer);
-cv.addEventListener('pointercancel', (e)=>{ pointers.delete(e.pointerId); if (pointers.size<2) twoInfo=null; });
+cv.addEventListener('pointercancel', (e)=>{
+  if (egoMode){ egoPointerUp(e); return; }
+  pointers.delete(e.pointerId); if (pointers.size<2) twoInfo=null; });
 cv.addEventListener('wheel', (e)=>{
   e.preventDefault();
+  if (egoMode) return;
   cancelEraFlight();
   cam.dist = clamp(cam.dist * (e.deltaY<0?0.9:1.12), 9, 62);
 },{passive:false});
@@ -3975,11 +4516,16 @@ $('pbOk').addEventListener('click', ()=>{
     if (haf) startExpedition(haf, placing.x, placing.y, cost);
     save();
   } else {
-    addBuilding(t, placing.x, placing.y);
+    const nb = addBuilding(t, placing.x, placing.y);
     if (CHRON_FIRSTS[t] && !chronicleHas('first_'+t))
       chronicleAdd('first_'+t, CHRON_FIRSTS[t]);
     snd(340,0.12,'triangle',0.05); snd(480,0.14,'triangle',0.04);
     save();
+    // Heldenhalle: Panel öffnet sich sofort – der erste Held ist gratis
+    if (t==='heldenhalle' && !state.hero){
+      selected = { kind:'building', bd: nb };
+      showBuildingInfo(nb); showSelQuads(nb);
+    }
   }
   cancelPlacing();
 });
@@ -3997,6 +4543,12 @@ function handleTap(sx,sy){
     return;
   }
   if (!inMap(tx,ty)){ hideInfo(); selected=null; hideSelQuads(); return; }
+  // Held hat Tap-Priorität vor Gebäuden
+  if (heroAlive() && !hero.sail && dist(tx,ty,hero.x,hero.y) < 1.3){
+    selected = { kind:'hero' };
+    showHeroInfo(); hideSelQuads(); snd(560,0.06,'sine',0.03);
+    return;
+  }
   const k = idx(tx,ty);
   if (occ[k]){
     selected = { kind:'building', bd: state.buildings[occ[k]-1] };
@@ -4227,6 +4779,43 @@ function showBuildingInfo(bd){
     }
     btns.appendChild(wrap);
   }
+  // Heldenhalle: Rekrutierung (1. Held gratis, Name per 🎲) bzw. Helden-Übersicht
+  if (bd.t==='heldenhalle'){
+    if (!state.hero){
+      if (!pendingHeroName) rollHeroName();
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:6px';
+      const nm = document.createElement('div');
+      nm.style.cssText = 'flex:1;font-size:13.5px;font-weight:600;color:#ffe9b0';
+      nm.textContent = '⚔️ ' + pendingHeroName;
+      row.appendChild(nm);
+      const dice = document.createElement('button');
+      dice.className = 'btn-blue';
+      dice.style.cssText = 'margin:0;flex-shrink:0;padding:8px 12px';
+      dice.textContent = '🎲';
+      dice.title = 'Neuen Namen würfeln';
+      dice.addEventListener('click', ()=>{ rollHeroName(); showBuildingInfo(bd); snd(500,0.05,'sine',0.03); });
+      row.appendChild(dice);
+      btns.appendChild(row);
+      const rb2 = document.createElement('button');
+      rb2.className = 'btn-green';
+      rb2.textContent = '⚔️ Held rekrutieren (gratis)';
+      rb2.addEventListener('click', ()=>{ if (recruitHero()) showBuildingInfo(bd); });
+      btns.appendChild(rb2);
+    } else {
+      const inf = document.createElement('div');
+      inf.style.cssText = 'font-size:12.5px;margin-top:5px;color:#cfe0f0';
+      inf.textContent = '⚔️ ' + state.hero.name + ' · Heldenstufe ' + heroLevel() +
+        ' · ❤️ ' + Math.ceil(hero?hero.hp:state.hero.hp) + '/' + heroMaxHp() +
+        (state.hero.respawn>0 ? ' · 🛌 kehrt in ' + Math.ceil(state.hero.respawn) + ' s zurück' : '');
+      btns.appendChild(inf);
+      const cb2 = document.createElement('button');
+      cb2.className = 'btn-green';
+      cb2.textContent = '🎮 Held steuern';
+      cb2.addEventListener('click', ()=>{ hideInfo(); selected = null; hideSelQuads(); enterEgo(); });
+      btns.appendChild(cb2);
+    }
+  }
   const uc = upgradeCost(bd);
   if (uc){
     const ub = document.createElement('button');
@@ -4372,7 +4961,7 @@ arrowEl.style.cssText = 'position:fixed;z-index:9;display:none;pointer-events:no
 document.body.appendChild(arrowEl);
 const _pv = new THREE.Vector3();
 function updateEnemyArrow(){
-  if (!state.waveActive || !enemies.length || !gameStarted){ arrowEl.style.display = 'none'; return; }
+  if (egoMode || !state.waveActive || !enemies.length || !gameStarted){ arrowEl.style.display = 'none'; return; }
   const ctx0 = cam.tx/TL + C, cty0 = cam.tz/TL + C;
   let best = null, bd = 1e9;
   for (const e of enemies){ const d = dist(e.x,e.y,ctx0,cty0); if (d<bd){bd=d;best=e;} }
@@ -4427,6 +5016,22 @@ function updateHUD(dt){
   }
   ui.wavebar.classList.toggle('alert', state.waveActive || state.waveTimer<16);
   $('btnMap').classList.toggle('alert', !!state.waveActive);   // roter Punkt: Angriff läuft
+  // --- Ego-HUD: Mini-Ressourcen, HP-Balken, Fadenkreuz, Aktionsbutton, Angriffs-Banner ---
+  if (egoMode && hero){
+    const extra = chips.filter(c=>c[2]).slice(-2)
+      .map(([,k])=>COSTICON[k]+' '+fmt(state.res[k])).join(' · ');
+    $('egoRes').textContent = '🪙 ' + fmt(state.res.gold) + (extra ? ' · ' + extra : '');
+    $('egoHpFill').style.width = Math.round(100*clamp(hero.hp/(hero.maxhp||1),0,1)) + '%';
+    const tgt = egoTargetEnemy();
+    $('egoCross').style.background = tgt ? '#ff5a4e' : '#fff';
+    $('egoAct').style.display = tgt ? 'flex' : 'none';
+    const nAtk = enemies.filter(e=>!e.sail).length;
+    const bn = $('egoBanner');
+    if (nAtk > 0){
+      bn.style.display = 'block';
+      bn.textContent = '⚠️ ' + nAtk + ' Angreifer! 🏙️ Zur Stadt';
+    } else bn.style.display = 'none';
+  }
   refreshMenu();
   updateAcademyProg();
   updateHint();
@@ -4440,6 +5045,7 @@ const HINTS = [
   { txt:'⚔️ Tippe die Kaserne an und bilde Soldaten aus!', done:()=>state.soldiersOwned>0 || !state.buildings.some(b=>b.t==='kaserne') },
 ];
 function updateHint(){
+  if (egoMode){ ui.hint.style.display = 'none'; return; }
   const h = HINTS.find(h=>!h.done());
   if (h && !state.waveActive){ ui.hint.textContent = h.txt; ui.hint.style.opacity = '1'; ui.hint.style.display='block'; }
   else ui.hint.style.opacity = '0';
@@ -4668,6 +5274,7 @@ function save(){
       researchJob: state.researchJob||null,
       fabHint: state.fabHint||0,
       kulturHint: state.kulturHint||0,
+      hero: state.hero||null,
     }));
   }catch(_){}
 }
@@ -4710,6 +5317,11 @@ function load(){
     state.researchJob = d.researchJob || null;  // fehlend ⇒ keine laufende Forschung
     state.fabHint = d.fabHint || 0;
     state.kulturHint = d.kulturHint || 0;
+    // Held (Etappe 24a): Alt-Saves ohne Feld laden ohne Helden; Start immer im Auto-Modus
+    state.hero = d.hero ? Object.assign(
+      { name:'Held', x:SX, y:SY, hp:100, skills:{k:1,h:1,s:1,c:1}, exp:{k:0,h:0,s:0,c:0},
+        equip:{w:'holzknueppel',a:null,t:null}, bag:[], auto:1, respawn:0 }, d.hero) : null;
+    if (state.hero) state.hero.auto = 1;
     chronWaveRecord = state.wave>1 ? waveStrength(state.wave-1) : 0;   // Rekord neu seeden
     genMap(); buildWorld();
     for (const b of d.buildings){
@@ -4719,6 +5331,7 @@ function load(){
       if (b.r){ nb.ruin = true; nb.hp = 0; applyRuinVisual(nb); }
     }
     updateWalls();
+    if (state.hero) spawnHeroUnit();     // Position wird auf findLanding korrigiert
     // Migration Etappe 21: Panzer/Flieger kommen jetzt aus Fabrik & Flugfeld (einmaliger Hinweis)
     if (!state.fabHint && state.buildings.some(b=>b.t==='kaserne' && lvlOf(b)>=16) &&
         !state.buildings.some(b=>b.t==='fabrik')){
@@ -4794,6 +5407,10 @@ function clearEntities(){
   if (state) for (const bd of state.buildings)
     if (bd.workers){ bd.workers.forEach(removeUnit); bd.workers = null; }
   for (const ex of expeditions){ fxGroup.remove(ex.boat); disposeGroup(ex.boat); }
+  if (hero){
+    if (hero.sail){ fxGroup.remove(hero.sail.boat); disposeGroup(hero.sail.boat); }
+    removeUnit(hero); hero = null;
+  }
   folk = []; soldiers = []; enemies = []; arrows = []; aiGuards = []; expeditions = [];
   spaceMissions = [];
   particles.length = 0; fallingTrees.length = 0;
@@ -4802,6 +5419,7 @@ function clearEntities(){
 }
 function restart(){
   try{ localStorage.removeItem(SAVEKEY); }catch(_){}
+  if (egoMode) exitEgo();
   clearEntities();
   disposeGroup(bldGroup);
   cancelPlacing(); hideInfo(); closeBuildSheet();
@@ -4835,8 +5453,11 @@ let last = performance.now();
 function loop(now){
   requestAnimationFrame(loop);
   let dt = Math.min(0.1, (now-last)/1000); last = now;
+  // Ego-Failsafes: ohne lebenden Helden oder nach Game Over sofort zurück zur Stadt
+  if (egoMode && (gameOver || !hero || !state.hero)) exitEgo();
+  if (egoMode && speed > 1){ speed = 1; $('btnSpeed').textContent = '▶'; }
   if (gameStarted && !gameOver && speed>0){
-    const sdt = dt*speed;
+    const sdt = dt*(egoMode ? Math.min(speed,1) : speed);   // Ego: Simulation fest auf 1×
     state.time += sdt;
     economy(sdt);
     updateResearch(sdt);
@@ -4851,6 +5472,7 @@ function loop(now){
     updateSpace(sdt);
     updateEnemies(sdt);
     updateSoldiers(sdt);
+    updateHero(sdt);
     updateAuras(sdt);
     updateTowers(sdt);
     updateArrows(sdt);
@@ -4871,6 +5493,7 @@ function loop(now){
   for (const s of soldiers) syncUnit(s, s.moving, t, dt);
   for (const e of enemies) syncUnit(e, e.moving, t, dt);
   for (const g of aiGuards) syncUnit(g, g.moving, t, dt);
+  if (heroAlive()) syncUnit(hero, hero.moving, t, dt);
   for (const bd of state.buildings){
     if (!bd.workers) continue;
     for (const w of bd.workers){
@@ -4924,7 +5547,7 @@ function loop(now){
   waterTime.value = t;
   updateDayNight();
   updateEraFlight(dt);
-  updateCam();
+  updateCamCombined(dt);
   updateEnemyArrow();
   renderer.render(scene, camera);
   captureChronThumbs();      // muss direkt nach render() passieren (WebGL-Puffer)
@@ -4968,5 +5591,21 @@ setTimeout(()=>{
       // Etappe 21b: Speicherhaus, Kultur, Leuchtturm, Lazarett, Verteidigungs-HQ
       depotBonus, depotAura, kulturPoints, shipSpeedFactor, vorpCost, lighthouseLvl,
       hqLvl, updateAuras, enemyNear, canPlace, placingHint, maxHp, lvlOf,
-      get particles(){return particles} };
+      get particles(){return particles},
+      // Etappe 24a: Held, Ego-Modus, Auto-Modus
+      get hero(){return state.hero}, get heroUnit(){return hero},
+      recruitHero, enterEgo, exitEgo, get egoMode(){return egoMode},
+      get egoYaw(){return egoYaw}, set egoYaw(v){egoYaw=v},
+      get egoPitch(){return egoPitch}, get egoBlend(){return egoBlend},
+      egoInput(mx,my,dx,dy){
+        egoStick.x = mx||0; egoStick.y = my||0;
+        if (dx) egoYaw += dx*0.22*Math.PI/180;
+        if (dy) egoPitch = clamp(egoPitch - dy*0.18*Math.PI/180, -Math.PI/3, Math.PI/3);
+      },
+      egoAction(){ return heroAttack(); },
+      get egoStick(){return egoStick},
+      giveHeroExp, heroKill(){ heroDie(); },
+      heroMaxHp, heroDmg, heroLevel, heroSkillCap, heroHome, egoTargetEnemy,
+      showHeroInfo, camera, heightAt:(x,y)=>hAt(x,y),
+      get speed(){return speed}, set speed(v){speed=v} };
 }, 40);
