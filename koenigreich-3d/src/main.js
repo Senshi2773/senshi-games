@@ -15,6 +15,12 @@ const wx = (x)=>(x-C)*TL, wz = (y)=>(y-C)*TL;   // Kachel- → Weltkoordinaten
 const inMap = (x,y)=>x>=0 && y>=0 && x<MAP && y<MAP;
 const idx = (x,y)=>y*MAP+x;
 
+// Admin-Konsole (Etappe 25c): build.mjs setzt window.__ADMIN__ NUR in artifact.html
+// (privater Build). Ohne Flag entsteht keinerlei Admin-UI im DOM.
+const IS_ADMIN = !!window.__ADMIN__;
+// Transiente Cheats – bewusst NICHT im Save: nach einem Reload sind sie wieder aus.
+const ADMIN = { god:false, happy:false };
+
 function mulberry32(a){ return function(){ a|=0; a = a + 0x6D2B79F5 | 0;
   let t = Math.imul(a ^ a>>>15, 1|a); t = t + Math.imul(t ^ t>>>7, 61|t) ^ t;
   return ((t ^ t>>>14) >>> 0) / 4294967296; }; }
@@ -290,10 +296,10 @@ function satisfaction(){
   if (rathausLvl() >= 6){
     const kultur = clamp(0.3 + kulturPoints()/Math.max(1, state.pop), 0, 1);
     const total = clamp(food*0.40 + safety*0.25 + housing*0.20 + kultur*0.15 + grat, 0, 1);
-    return { food, safety, housing, kultur, total };
+    return { food, safety, housing, kultur, total: ADMIN.happy ? 1 : total };
   }
   const total = clamp(food*0.45 + safety*0.3 + housing*0.25 + grat, 0, 1);
-  return { food, safety, housing, total };
+  return { food, safety, housing, total: ADMIN.happy ? 1 : total };
 }
 
 let state = null, gameStarted = false, gameOver = false;
@@ -3358,6 +3364,7 @@ function recruitHero(){
   return true;
 }
 function heroDie(){
+  if (ADMIN.god) return;                 // Gottmodus (Admin-Konsole): Held fällt nie
   if (!state.hero || state.hero.respawn > 0 || !hero) return;
   // Tod im Dungeon (24c): kein Countdown – Erwachen am Eingang (Oberwelt) mit 30 % HP.
   // Beute/EXP bleiben (Sofort-Gutschrift), nur der Bossraum resettet.
@@ -8320,6 +8327,273 @@ function openChronicle(){
 $('btnChron').addEventListener('click', openChronicle);
 $('chronClose').addEventListener('click', ()=>{ $('chronOv').style.display = 'none'; });
 
+// ============================== ADMIN-KONSOLE (Etappe 25c, nur privater Build) ==============================
+// Cheats fürs Endgame-Testen. Die Funktionen stecken immer im Bundle (Einzelspieler,
+// kein Sicherheitsthema) – das UI (🛠️-Knopf + Sheet) entsteht aber NUR bei IS_ADMIN
+// (artifact.html); die öffentliche index.html enthält keinerlei Admin-DOM.
+// Transiente Cheats (Gottmodus, Zufriedenheits-Fix, Zeitraffer) werden nie gespeichert.
+const ADMIN_RES = ['holz','stein','nahrung','gold','erz','eisen','stahl','oel','lithium'];
+function adminGiveRes(k, n){
+  if (!state) return;
+  state.res[k] = (state.res[k]||0) + n;
+  toast('🛠️ +'+fmt(n)+' '+COSTICON[k]); save();
+}
+function adminAllRes(n, set){
+  if (!state) return;
+  for (const k of ADMIN_RES) state.res[k] = set ? n : (state.res[k]||0) + n;
+  toast(set ? '🛠️ Alle Rohstoffe auf '+fmt(n)+' gesetzt.' : '🛠️ Alle Rohstoffe +'+fmt(n)+'.');
+  save();
+}
+// Rathaus-Stufe direkt setzen – repliziert den Endzustand des echten Upgrade-Pfads
+// (tryUpgrade): Stufe/HP/Visual, Epochen-Hooks (Held-Look, Kultur-Flag, Chronik),
+// Freischalt-Badge. Kamerafahrt und Einzelstufen-Toasts bewusst unterdrückt.
+function adminSetRathaus(L){
+  if (!state) return false;
+  const rat = state.buildings.find(b=>b.t==='rathaus');
+  if (!rat){ toast('🛠️ Kein Rathaus vorhanden.'); return false; }
+  if (rat.ruin){ toast('🛠️ Rathaus ist eine Ruine – erst reparieren.'); return false; }
+  const before = lvlOf(rat);
+  if (L === before){ toast('🛠️ Rathaus ist bereits Stufe '+L+'.'); return false; }
+  const wasEra = eraOf(before);
+  rat.lvl = L; rat.hp = maxHp(rat);
+  applyLevelVisual(rat); recalcEff(rat);
+  const nowEra = eraOf(L);
+  if (nowEra !== wasEra){
+    chronicleAdd('era', '🎇 Neues Zeitalter: '+nowEra.icon+' '+nowEra.name+' (Rathaus Stufe '+L+').');
+    if (state.hero && hero) refreshHeroLook(true);         // Rüstungs-Look folgt der Epoche
+    if (L >= 6) state.kulturHint = 1;    // Kultur-Ersthinweis nicht nachträglich feuern
+  }
+  updateBuildBadge(); refreshMenu();
+  toast('🛠️ Rathaus auf Stufe '+L+' – '+nowEra.icon+' '+nowEra.name+'.');
+  save();
+  return true;
+}
+function adminSeenAll(){
+  if (!state) return;
+  state.seenUnlocks = BUILDABLE.slice();
+  updateBuildBadge(); refreshMenu();
+  toast('🛠️ Alle Gebäude als gesehen markiert (Freischalt-Badge aus).'); save();
+}
+function adminSpeed(v){
+  speed = v;                             // Ego-Klemme in loop() drückt v>1 auf 1× zurück
+  $('btnSpeed').textContent = v===0 ? '⏸' : (v===1 ? '▶' : '⏩');
+  toast('🛠️ Zeitraffer '+v+'×'+(egoMode && v>1 ? ' (im Ego bleibt 1×)' : '')+' – transient.', 1800);
+}
+function adminWaveNow(){
+  if (!state) return;
+  if (state.waveActive){ toast('🛠️ Es läuft bereits eine Welle.'); return; }
+  state.waveTimer = 0;
+  toast('🛠️ Welle '+state.wave+' startet sofort.');
+}
+function adminWaveEnd(){
+  if (!state) return;
+  for (const e of enemies) removeUnit(e);
+  enemies = [];
+  spawnEdge = null;
+  if (state.waveActive){ state.waveActive = false; waveAge = 0; state.wave++; }
+  state.waveTimer = 190;
+  toast('🛠️ Welle beendet – Gegner geräumt, Timer zurückgesetzt.');
+  save();
+}
+function adminDefeatRagnar(){
+  if (!state || !state.ai){ toast('🛠️ Kein Ragnar auf dieser Karte.'); return; }
+  if (state.ai.defeated){ toast('🛠️ Ragnar ist bereits besiegt.'); return; }
+  aiDefeated();                          // regulärer Sieg-Pfad (Chronik, Belohnung, Aufräumen)
+}
+// Entscheidung (dokumentiert): max = 10 UNABHÄNGIG vom Epochen-Deckel (heroSkillCap),
+// damit Endgame-Tests ohne vorherigen Rathaus-Ausbau möglich sind.
+function adminSkillsMax(){
+  const h = state && state.hero;
+  if (!h){ toast('🛠️ Kein Held rekrutiert.'); return; }
+  for (const k of ['k','h','s','c']){ h.skills[k] = 10; h.exp[k] = 0; }
+  if (hero){ hero.maxhp = heroMaxHp(); hero.hp = hero.maxhp; }
+  toast('🛠️ Alle Fertigkeiten auf 10 (Heldenstufe '+heroLevel()+').');
+  save();
+}
+function adminSkillExp(){
+  if (!state || !state.hero){ toast('🛠️ Kein Held rekrutiert.'); return; }
+  for (const k of ['k','h','s','c']) giveHeroExp(k, 500);
+  toast('🛠️ +500 EXP je Fertigkeit (Epochen-Deckel '+heroSkillCap()+' greift).');
+  save();
+}
+function adminGiveItem(id){
+  if (!state || !state.hero){ toast('🛠️ Kein Held rekrutiert.'); return; }
+  const it = HERO_ITEMS[id];
+  if (!it) return;
+  if (id==='pfanne'){
+    state.hero.pfanne = 1;
+    toast('🛠️ 🥄 Goldpfanne erhalten – Schürfen freigeschaltet.'); save(); return;
+  }
+  if (it.slot==='t'){                    // Amulett: Rezept gleich mitschenken
+    state.hero.rezepte = state.hero.rezepte || {};
+    state.hero.rezepte[id] = 1;
+  }
+  equipHero(it.slot, id);                // echter Pfad: Optik, HP-Anpassung, Save
+  toast('🛠️ '+it.name+' gratis angelegt.');
+}
+function adminFillBag(){
+  const h = state && state.hero;
+  if (!h){ toast('🛠️ Kein Held rekrutiert.'); return; }
+  const gems = bagAdd('gem', Math.max(1, Math.floor((heroCapacity()-bagCount())/2)));
+  const nug = bagAdd('nugget', heroCapacity());
+  toast('🛠️ Beutel gefüllt: 💎×'+gems+' ✨×'+nug+' ('+bagCount()+'/'+heroCapacity()+').');
+  save();
+}
+function adminTeleport(i){
+  if (!state || !ISLES[i]) return;
+  const I = ISLES[i];
+  if (dungeon) exitDungeon();
+  const spot = nearestTile(I.x, I.y,
+    (px,py)=>walkable(px,py) && isleParent[isleOf(px,py)]===i, Math.ceil(I.r)+8)
+    || findLanding(I.x, I.y);
+  if (hero && state.hero){
+    if (hero.sail){ fxGroup.remove(hero.sail.boat); disposeGroup(hero.sail.boat); hero.sail = null; }
+    mining = null;
+    hero.x = spot[0]; hero.y = spot[1];
+    hero.moving = false; hero.patrol = null;
+    state.hero.x = spot[0]; state.hero.y = spot[1];
+    tpSnap = true;
+  }
+  cam.tx = wx(spot[0]); cam.tz = wz(spot[1]); clampCam();
+  toast('🛠️ Teleport: Insel '+(i+1)+' – '+(BIOME_NAME[I.biome]||I.biome)+'.');
+  save();
+}
+function adminDungeonsClear(){
+  if (!state) return;
+  if (!state.dungeons) state.dungeons = { cleared:{} };
+  let n = 0;
+  for (const p of dngPortals)
+    if (!(state.dungeons.cleared[p.isle] > 0)){ state.dungeons.cleared[p.isle] = 1; n++; }
+  toast('🛠️ Dungeon-Bosse als besiegt markiert ('+n+' neu) – Wiederhol-Loot testbar.');
+  save();
+}
+function adminDungeonsReset(){
+  if (!state) return;
+  if (dungeon) exitDungeon();
+  state.dungeons = { cleared:{} };
+  for (const k in dungeonRuns) delete dungeonRuns[k];
+  toast('🛠️ Dungeons zurückgesetzt – alle Erst-Runs wieder offen.');
+  save();
+}
+function adminCompleteQuest(){
+  if (!state || !state.quests || !state.quests.active.length){
+    toast('🛠️ Kein aktiver Auftrag.'); return;
+  }
+  const q = state.quests.active.find(a=>a.tracked) || state.quests.active[0];
+  completeQuest(q, true);                // echter Abschluss-Pfad inkl. Belohnung
+}
+function adminRerollOffers(){
+  if (!state || !state.quests){ toast('🛠️ Questsystem noch nicht bereit.'); return; }
+  state.quests.offers = [];
+  ensureOffers();
+  toast('🛠️ Tafel neu gewürfelt ('+state.quests.offers.length+' Angebote).');
+  save();
+}
+// --- Admin-UI: wird NUR bei IS_ADMIN erzeugt (kein totes DOM im öffentlichen Build) ---
+function openAdminSheet(){
+  if (!IS_ADMIN) return false;
+  buildAdminList();
+  $('adminOv').style.display = 'flex';
+  return true;
+}
+function closeAdminSheet(){
+  const ov = document.getElementById('adminOv');
+  if (ov) ov.style.display = 'none';
+}
+function buildAdminList(){
+  const list = $('adminList');
+  list.innerHTML = '';
+  const head = (t2)=>{ const h = document.createElement('div'); h.className = 'adm-h';
+    h.textContent = t2; list.appendChild(h); };
+  const grid = ()=>{ const g2 = document.createElement('div'); g2.className = 'adm-grid';
+    list.appendChild(g2); return g2; };
+  const btn = (g2, label, fn, on)=>{
+    const x = document.createElement('button');
+    x.className = 'adm-btn' + (on ? ' on' : '');
+    x.textContent = label;
+    x.addEventListener('click', fn);
+    g2.appendChild(x); return x;
+  };
+  head('💰 Ressourcen');
+  let g = grid();
+  for (const k of ADMIN_RES) btn(g, COSTICON[k]+' +10k', ()=>adminGiveRes(k, 10000));
+  btn(g, '💰 Alles +100k', ()=>adminAllRes(100000, false));
+  btn(g, '💰 Alles auf 999k', ()=>adminAllRes(999000, true));
+  head('🏛️ Progression');
+  g = grid();
+  for (const L of [5,11,16,21,26,31,35])
+    btn(g, '🏛️ Stufe '+L+' '+eraOf(L).icon, ()=>adminSetRathaus(L));
+  btn(g, '🔨 Gebäude-Badge leeren', adminSeenAll);
+  const hap = btn(g, '😊 Zufriedenheit 100 %: '+(ADMIN.happy?'AN':'aus'), ()=>{
+    ADMIN.happy = !ADMIN.happy;
+    hap.classList.toggle('on', ADMIN.happy);
+    hap.textContent = '😊 Zufriedenheit 100 %: '+(ADMIN.happy?'AN':'aus');
+    toast('🛠️ Zufriedenheits-Fix '+(ADMIN.happy?'AN':'aus')+' – transient, nicht gespeichert.');
+  }, ADMIN.happy);
+  for (const v of [1,4,8]) btn(g, '⏩ Zeitraffer '+v+'×', ()=>adminSpeed(v), speed===v);
+  head('⚔️ Kampf & KI');
+  g = grid();
+  btn(g, '🗡️ Welle jetzt', adminWaveNow);
+  btn(g, '🏳️ Welle beenden', adminWaveEnd);
+  btn(g, '🏆 Ragnar besiegen', adminDefeatRagnar);
+  const god = btn(g, '🛡️ Gottmodus Held: '+(ADMIN.god?'AN':'aus'), ()=>{
+    ADMIN.god = !ADMIN.god;
+    god.classList.toggle('on', ADMIN.god);
+    god.textContent = '🛡️ Gottmodus Held: '+(ADMIN.god?'AN':'aus');
+    toast('🛠️ Gottmodus '+(ADMIN.god?'AN':'aus')+' – transient, nicht gespeichert.');
+  }, ADMIN.god);
+  head('🛡️ Held');
+  g = grid();
+  btn(g, '✨ Skills max (alle 10)', adminSkillsMax);
+  btn(g, '✨ EXP +500 je Skill', adminSkillExp);
+  btn(g, '🎒 Beutel füllen', adminFillBag);
+  btn(g, '🥄 Goldpfanne geben', ()=>adminGiveItem('pfanne'));
+  head('🎁 Ausrüstung (gratis anlegen)');
+  g = grid();
+  for (const id of CRAFT_ORDER)
+    if (id !== 'pfanne') btn(g, HERO_ITEMS[id].name, ()=>adminGiveItem(id));
+  head('🌍 Welt');
+  g = grid();
+  ISLES.forEach((I,i)=>btn(g, '🧭 Insel '+(i+1)+' · '+(BIOME_NAME[I.biome]||'?')+
+    (i===0?' (Heimat)':''), ()=>adminTeleport(i)));
+  btn(g, '🏆 Dungeon-Bosse besiegt', adminDungeonsClear);
+  btn(g, '♻️ Dungeon-Reset', adminDungeonsReset);
+  btn(g, '✅ Aktive Quest abschließen', adminCompleteQuest);
+  btn(g, '🎲 Quest-Angebote neu würfeln', adminRerollOffers);
+}
+function initAdminConsole(){
+  const st = document.createElement('style');
+  st.textContent =
+    '#btnAdmin{border-color:#ff9d2e;box-shadow:0 0 9px rgba(255,157,46,.55);}'+
+    '.adminbox{max-width:560px;}'+
+    '.adm-sub{font-size:11.5px;color:#ffce8a;text-align:center;margin-top:2px;}'+
+    '#adminList{flex:1;overflow-y:auto;margin-top:8px;padding-right:2px;}'+
+    '.adm-h{font-size:13px;font-weight:700;color:#ffd28a;margin:12px 2px 6px;}'+
+    '.adm-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}'+
+    '.adm-btn{min-height:44px;border:none;border-radius:10px;background:#3d5a8a;'+
+      'color:#fff;font-size:12.5px;font-weight:600;cursor:pointer;padding:8px 6px;}'+
+    '.adm-btn:active{background:#4c6ea8;}'+
+    '.adm-btn.on{background:#3fae5c;}';
+  document.head.appendChild(st);
+  const b = document.createElement('button');
+  b.className = 'sbtn'; b.id = 'btnAdmin';
+  b.title = 'Admin-Konsole (nur privater Build)';
+  b.textContent = '🛠️';
+  $('sysbtns').appendChild(b);
+  const ov = document.createElement('div');
+  ov.className = 'overlay'; ov.id = 'adminOv'; ov.style.display = 'none';
+  ov.innerHTML =
+    '<div class="obox panel chronbox adminbox">'+
+    '<button class="sbtn" id="adminClose" title="Schließen">✕</button>'+
+    '<h1 class="chron-title">🛠️ Admin-Konsole</h1>'+
+    '<div class="adm-sub">Nur im privaten Build · transiente Cheats enden mit dem Reload</div>'+
+    '<div id="adminList"></div></div>';
+  document.body.appendChild(ov);
+  b.addEventListener('click', openAdminSheet);
+  ov.querySelector('#adminClose').addEventListener('click', closeAdminSheet);
+}
+if (IS_ADMIN) initAdminConsole();
+
 // --- Minimap-Overlay: Biom-Karte, Marker, Tap-to-Jump ---
 const BIOME_MAP_COL = { wiese:[78,143,61], wald:[42,105,46], schnee:[205,216,226],
   vulkan:[64,56,61], wueste:[214,181,104] };
@@ -8787,6 +9061,11 @@ function loop(now){
     emitSmoke(sdt);
     updateParticles(sdt);
     flushLoot(sdt);
+    // Gottmodus (Admin-Konsole): erlittener Schaden wird pro Tick zurückgesetzt
+    if (ADMIN.god && hero && state.hero && !(state.hero.respawn>0)){
+      hero.maxhp = heroMaxHp();
+      if (hero.hp < hero.maxhp){ hero.hp = hero.maxhp; hero.prevHp = hero.hp; }
+    }
     updateHUD(dt);
   } else if (!gameStarted){
     state.time += dt*0.2;
@@ -9068,5 +9347,11 @@ setTimeout(()=>{
       get PFANNE_HINT(){ return PFANNE_HINT; },
       // Etappe 24g: Holz-Ökonomie (inselweiter Holzfäller, Fuhren-Werte)
       treesOnIsle, invalidateTreeCache, CHOPS_PER_TREE, gatherRadius,
-      workerTick(sec){ manageWorkers(sec||0.1); } };
+      workerTick(sec){ manageWorkers(sec||0.1); },
+      // Etappe 25c: Admin-Konsole (UI nur im privaten Build; Funktionen testbar)
+      get IS_ADMIN(){ return IS_ADMIN; }, get adminCheats(){ return ADMIN; },
+      adminGiveRes, adminAllRes, adminSetRathaus, adminSeenAll, adminSpeed,
+      adminWaveNow, adminWaveEnd, adminDefeatRagnar, adminSkillsMax, adminSkillExp,
+      adminGiveItem, adminFillBag, adminTeleport, adminDungeonsClear,
+      adminDungeonsReset, adminCompleteQuest, adminRerollOffers, openAdminSheet };
 }, 40);

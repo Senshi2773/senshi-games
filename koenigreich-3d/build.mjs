@@ -19,9 +19,12 @@ const tpl = readFileSync('template.html', 'utf8');
 const full = tpl.replace('/*__BUNDLE__*/', () => js);
 writeFileSync('index.html', full);
 
-// Artifact-Variante: nur <title> + <style> + Body-Inhalt
+// Artifact-Variante: nur <title> + <style> + Body-Inhalt.
+// Admin-Konsole (Etappe 25c): NUR der private artifact-Build erhält das Flag –
+// es steht VOR dem Bundle-Script; index.html (öffentlich) bekommt es nie.
 const style = full.match(/<style>[\s\S]*?<\/style>/)[0];
 const body = full.match(/<body>\n([\s\S]*)\n<\/body>/)[1];
-writeFileSync('artifact.html', '<title>Königreich 3D</title>\n' + style + '\n' + body + '\n');
+writeFileSync('artifact.html', '<title>Königreich 3D</title>\n' + style +
+  '\n<script>window.__ADMIN__=true;</script>\n' + body + '\n');
 
 console.log('index.html:', (full.length/1024).toFixed(0)+'kB');
