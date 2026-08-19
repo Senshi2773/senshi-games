@@ -1,0 +1,796 @@
+/* Die sieben Geißlein und der liebe Wolf – kindgerechtes Design ab 5 Jahren */
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Comic Sans MS", "Chalkboard SE", "Segoe UI", system-ui, sans-serif;
+  background: #fdf6e3;
+  color: #4a3c2a;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#app {
+  height: 100%;
+  height: 100dvh; /* berücksichtigt die ein-/ausblendende Browserleiste am Handy */
+}
+
+.screen {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.screen.active { display: flex; }
+/* Startbildschirm darf scrollen statt zu quetschen, falls der Platz nicht reicht */
+#screen-start > * { flex-shrink: 0; }
+
+/* ---------- Startbildschirm ---------- */
+
+#screen-start {
+  background: linear-gradient(#bfe3f2 0%, #dff0d8 55%, #a7d7a9 100%);
+  justify-content: flex-start;
+  text-align: center;
+}
+
+.himmel { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.sonne {
+  position: absolute; top: 4%; right: 6%;
+  width: 70px; height: 70px; border-radius: 50%;
+  background: #f9d867;
+  box-shadow: 0 0 40px 14px rgba(249, 216, 103, 0.55);
+  animation: drehen 24s linear infinite;
+}
+.wolke {
+  position: absolute;
+  width: 120px; height: 40px; border-radius: 40px;
+  background: #ffffff; opacity: 0.85;
+}
+.wolke::before {
+  content: ""; position: absolute; top: -18px; left: 22px;
+  width: 50px; height: 50px; border-radius: 50%; background: inherit;
+}
+.wolke.w1 { top: 8%; left: -130px; animation: ziehen 40s linear infinite; }
+.wolke.w2 { top: 18%; left: -130px; animation: ziehen 55s linear 12s infinite; }
+
+@keyframes ziehen { to { transform: translateX(120vw); } }
+@keyframes drehen { to { transform: rotate(360deg); } }
+
+.titel {
+  margin: 1.2vh 12px 0;
+  font-size: clamp(1.35rem, 5.2vw, 2.2rem);
+  line-height: 1.12;
+  color: #5a7d3f;
+  text-shadow: 0 2px 0 #ffffff;
+  z-index: 1;
+}
+.titel span { color: #7d8a9c; font-size: 0.8em; }
+
+.buehne {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin-top: 1.5vh;
+  z-index: 1;
+}
+.figur.wolf { width: clamp(70px, 17vw, 110px); }
+.figur.geiss { width: clamp(46px, 12vw, 72px); }
+.figur.mama { width: clamp(60px, 15vw, 92px); }
+
+.buehne .figur { cursor: pointer; }
+
+.huepft { animation: huepfen 1.6s ease-in-out infinite; transform-origin: bottom center; }
+.huepft.h2 { animation-delay: 0.25s; }
+.huepft.h3 { animation-delay: 0.5s; }
+@keyframes huepfen {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-14px); }
+  50% { transform: translateY(0) scaleY(0.96); }
+}
+.schwingt { animation: schwingen 3s ease-in-out infinite; transform-origin: bottom center; }
+@keyframes schwingen {
+  0%, 100% { transform: rotate(-2.5deg); }
+  50% { transform: rotate(2.5deg); }
+}
+
+.intro {
+  margin: 0.8vh 20px;
+  font-size: clamp(0.85rem, 3.2vw, 1.05rem);
+  z-index: 1;
+}
+
+.menue {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: min(88vw, 380px);
+  z-index: 1;
+}
+
+.schwierigkeit {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  z-index: 1;
+}
+.taste.stufe {
+  padding: 10px 18px;
+  font-size: 1rem;
+  opacity: 0.55;
+}
+.taste.stufe.aktiv {
+  opacity: 1;
+  background: #d9f0dc;
+  box-shadow: 0 5px 0 #8fc99b, 0 8px 14px rgba(0,0,0,0.12);
+}
+
+.taste {
+  border: none;
+  border-radius: 22px;
+  background: #ffffff;
+  color: #4a3c2a;
+  font-family: inherit;
+  font-size: 1.15rem;
+  font-weight: bold;
+  box-shadow: 0 5px 0 #d8c9a3, 0 8px 14px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.taste:active {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 #d8c9a3, 0 3px 6px rgba(0,0,0,0.12);
+}
+.taste.gross {
+  padding: 10px 20px;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.taste-bild { font-size: 1.6rem; }
+.taste.rund {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.taste.rund.aus { opacity: 0.45; filter: grayscale(1); }
+
+.einstellungen {
+  display: flex;
+  gap: 14px;
+  margin: 1.2vh 0 calc(1.5vh + env(safe-area-inset-bottom));
+  z-index: 1;
+}
+
+/* ---------- Spielbildschirme allgemein ---------- */
+
+.spielkopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px 0;
+}
+
+.fortschritt {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  flex: 1;
+}
+.fortschritt .punkt {
+  width: clamp(16px, 5vw, 28px);
+  height: clamp(16px, 5vw, 28px);
+  opacity: 0.25;
+  filter: grayscale(1);
+  transition: opacity 0.3s, filter 0.3s, transform 0.3s;
+}
+.fortschritt .punkt.an {
+  opacity: 1;
+  filter: none;
+  animation: punkt-pop 0.45s ease;
+}
+@keyframes punkt-pop {
+  0% { transform: scale(0.2); }
+  60% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+.anweisung {
+  margin: 8px 16px;
+  text-align: center;
+  font-size: clamp(0.9rem, 3.4vw, 1.1rem);
+}
+
+/* ---------- Verstecken ---------- */
+
+#screen-verstecken { background: linear-gradient(#f9eed3, #f3e0b8); }
+
+.zimmer-rahmen {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 6px calc(8px + env(safe-area-inset-bottom));
+}
+.zimmer-szene {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  border-radius: 18px;
+}
+.zimmer-szene[hidden] { display: none; }
+
+.zwischenmeldung {
+  position: fixed;
+  top: 45%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 18;
+  background: #fffdf5;
+  color: #5a7d3f;
+  font-weight: bold;
+  font-size: clamp(1.1rem, 4.5vw, 1.5rem);
+  text-align: center;
+  padding: 20px 28px;
+  border-radius: 22px;
+  box-shadow: 0 10px 34px rgba(0,0,0,0.25);
+  max-width: 86vw;
+  animation: karte-rein 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+  transition: opacity 0.35s, transform 0.35s;
+}
+.zwischenmeldung.weg {
+  opacity: 0;
+  transform: translate(-50%, -70%);
+}
+
+.versteck { cursor: pointer; }
+.versteck .geiss-pop { opacity: 0; pointer-events: none; }
+.versteck .geiss-pop use {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.versteck.gefunden .geiss-pop { opacity: 1; }
+.versteck.gefunden .geiss-pop use {
+  animation:
+    geiss-pop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1),
+    geiss-winken 2.4s 0.6s ease-in-out infinite;
+}
+@keyframes geiss-pop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+/* Gefundene Geißlein wippen fröhlich weiter */
+@keyframes geiss-winken {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+
+/* Möbel reagieren: Fehlversuch = deutliches Wackeln, Hinweis = kurzes Zappeln */
+.versteck .moebel {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.versteck.daneben .moebel { animation: moebel-wackeln 0.55s ease; }
+@keyframes moebel-wackeln {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+  80% { transform: rotate(-1.5deg); }
+}
+.versteck.zappelt .moebel { animation: moebel-zappeln 0.85s ease; }
+@keyframes moebel-zappeln {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  20% { transform: rotate(-1.2deg) translateY(-2px); }
+  40% { transform: rotate(1.2deg) translateY(0); }
+  60% { transform: rotate(-1.2deg) translateY(-2px); }
+  80% { transform: rotate(1.2deg) translateY(0); }
+}
+
+/* Herzen im Groß-Modus: übrige Versuche */
+.versuche {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: -2px 0 4px;
+}
+.versuche .herz {
+  width: 26px;
+  height: 26px;
+  opacity: 0.25;
+  filter: grayscale(1);
+  transition: opacity 0.3s, filter 0.3s;
+}
+.versuche .herz.voll { opacity: 1; filter: none; }
+.pendel { animation: pendeln 2s ease-in-out infinite; transform-origin: 50px 130px; }
+@keyframes pendeln {
+  0%, 100% { transform: translateX(-8px); }
+  50% { transform: translateX(8px); }
+}
+
+/* ---------- Memory ---------- */
+
+#screen-memory { background: linear-gradient(#e8f4e2, #cfe8cb); }
+
+.memory-feld {
+  flex: 1;
+  width: min(97vw, 560px);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  align-content: center;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  min-height: 0;
+}
+@media (min-aspect-ratio: 1/1) {
+  .memory-feld { grid-template-columns: repeat(8, 1fr); width: min(94vw, 1000px); }
+}
+
+.karte {
+  aspect-ratio: 3 / 4;
+  max-height: 19vh;
+  margin: 0 auto;
+  width: 100%;
+  perspective: 600px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+}
+.karte-innen {
+  position: relative;
+  width: 100%; height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.45s;
+}
+.karte.offen .karte-innen,
+.karte.fertig .karte-innen { transform: rotateY(180deg); }
+.karte-seite {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 0 rgba(0,0,0,0.12);
+}
+.karte-ruecken {
+  background: #8fc99b;
+  border: 3px solid #6ba777;
+  font-size: 1.8rem;
+}
+.karte-vorn {
+  background: #ffffff;
+  border: 3px solid #e0d5b8;
+  transform: rotateY(180deg);
+}
+.karte-vorn svg { width: 72%; height: 72%; }
+.karte.fertig { animation: karte-freude 0.6s ease; }
+.karte.fertig .karte-vorn { border-color: #8fc99b; background: #f0f9ef; }
+@keyframes karte-freude {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12) rotate(3deg); }
+}
+
+/* ---------- Kuchen backen ---------- */
+
+#screen-backen { background: linear-gradient(#fdeedd, #f7dcc0); }
+
+.rezept {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  margin: 0 12px;
+  background: #fffdf5;
+  border: 3px dashed #d3b06e;
+  border-radius: 16px;
+}
+.rezept-feld {
+  position: relative;
+  width: clamp(34px, 9vw, 48px);
+  height: clamp(34px, 9vw, 48px);
+  border-radius: 10px;
+  padding: 3px;
+  background: #f9efe2;
+  opacity: 0.5;
+}
+.rezept-feld svg { width: 100%; height: 100%; display: block; }
+.rezept-feld.dran {
+  opacity: 1;
+  background: #d9f0dc;
+  animation: gewaehlt-pulsieren 0.9s ease-in-out infinite;
+}
+.rezept-feld.fertig { opacity: 1; }
+.rezept-feld.fertig::after {
+  content: "✔";
+  position: absolute;
+  right: 1px;
+  bottom: 0;
+  color: #5a7d3f;
+  font-weight: bold;
+  text-shadow: 0 0 3px #fff;
+}
+
+.backstube {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+.backen-mitte {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 20px;
+}
+.schuessel-knopf, .ofen-knopf {
+  border: none;
+  background: none;
+  padding: 6px;
+  cursor: pointer;
+  border-radius: 20px;
+}
+.schuessel-knopf svg { width: clamp(130px, 38vw, 190px); display: block; }
+.ofen-knopf svg { width: clamp(110px, 32vw, 160px); display: block; }
+.schuessel-knopf.dran, .ofen-knopf.dran {
+  animation: gewaehlt-pulsieren 0.9s ease-in-out infinite;
+  background: rgba(255, 253, 245, 0.7);
+}
+.schuessel-knopf.ruehrt svg { animation: igitt-schuetteln 0.3s ease; }
+.ofen-knopf.backt svg { animation: ofen-brummen 0.5s ease-in-out infinite; }
+@keyframes ofen-brummen {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.zutaten-regal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  margin: 0 12px;
+  background: #f2d8a0;
+  border: 3px solid #d3b06e;
+  border-radius: 18px;
+}
+.zutat {
+  border: 3px solid transparent;
+  background: #fffdf5;
+  border-radius: 14px;
+  padding: 7px;
+  cursor: pointer;
+}
+.zutat svg { width: clamp(38px, 10vw, 52px); height: clamp(38px, 10vw, 52px); display: block; pointer-events: none; }
+.zutat.verbraucht { opacity: 0.25; pointer-events: none; }
+.zutat.wackelt-kurz { animation: igitt-schuetteln 0.45s ease; }
+
+.backen-wolf {
+  position: absolute;
+  right: 4px;
+  bottom: calc(4px + env(safe-area-inset-bottom));
+  width: clamp(60px, 14vw, 90px);
+  pointer-events: none;
+  opacity: 0.95;
+}
+
+/* ---------- Sticker-Album ---------- */
+
+#screen-album { background: linear-gradient(#f4e9f7, #e2d4ec); }
+
+.album-titel {
+  flex: 1;
+  text-align: center;
+  font-weight: bold;
+  font-size: 1.2rem;
+  color: #7a5c8f;
+  margin: 0;
+}
+.platzhalter-rund { width: 56px; flex: none; }
+
+.album-gitter {
+  flex: 1;
+  width: min(94vw, 520px);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  align-content: start;
+  overflow-y: auto;
+  padding: 4px 0 calc(14px + env(safe-area-inset-bottom));
+}
+@media (min-aspect-ratio: 1/1) {
+  .album-gitter { grid-template-columns: repeat(6, 1fr); width: min(90vw, 900px); }
+}
+.album-feld {
+  background: #fffdf5;
+  border: 3px dashed #c9b6d8;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 6px;
+  min-height: 110px;
+}
+.album-feld svg { width: 56px; height: 70px; opacity: 0.18; filter: grayscale(1); }
+.album-feld span { font-size: 0.85rem; font-weight: bold; color: #a394b3; }
+.album-feld.besitzt { border-style: solid; border-color: #8fc99b; }
+.album-feld.besitzt svg { opacity: 1; filter: none; }
+.album-feld.besitzt span { color: #5a7d3f; }
+
+/* ---------- Leckerlis fangen ---------- */
+
+#screen-fangen { background: linear-gradient(#bfe3f2 0%, #d8eec9 70%, #a7d7a9 100%); }
+
+.fangen-feld {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.wiese {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 16%;
+  background: #8fc45f;
+  border-radius: 50% 50% 0 0 / 30px 30px 0 0;
+}
+.fangen-wolf {
+  position: absolute;
+  bottom: 2%;
+  left: 50%;
+  width: clamp(80px, 20vw, 120px);
+  transform: translateX(-50%);
+  animation: schwingen 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.leckerli {
+  position: absolute;
+  top: -70px;
+  border: none;
+  background: none;
+  padding: 8px;
+  cursor: pointer;
+}
+.leckerli svg { width: clamp(46px, 12vw, 64px); height: clamp(46px, 12vw, 64px); pointer-events: none; }
+.leckerli.gefangen svg { animation: leckerli-weg 0.35s ease forwards; }
+@keyframes leckerli-weg {
+  to { transform: scale(1.8); opacity: 0; }
+}
+.leckerli.igitt svg { animation: igitt-schuetteln 0.45s ease; }
+@keyframes igitt-schuetteln {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-18deg); }
+  75% { transform: rotate(18deg); }
+}
+
+/* ---------- Picknick ---------- */
+
+#screen-picknick { background: linear-gradient(#bfe3f2 0%, #d8eec9 45%, #8fc45f 100%); }
+
+.picknick-bereich {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+}
+.picknick-decke {
+  position: absolute;
+  inset: 6% 4%;
+  border-radius: 26px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 34px, rgba(255,255,255,0.5) 34px 40px),
+    repeating-linear-gradient(90deg, #e88f9b 0 34px, #ef9fab 34px 40px);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.12);
+}
+.esser-reihe {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px 6px;
+  max-width: 96%;
+}
+.esser {
+  border: none;
+  background: none;
+  padding: 4px;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.esser-name {
+  font-size: 0.78rem;
+  font-weight: bold;
+  color: #6b4f2e;
+  background: rgba(255, 253, 245, 0.85);
+  border-radius: 8px;
+  padding: 1px 7px;
+  margin-top: 2px;
+}
+.esser svg { width: clamp(52px, 12.5vw, 84px); height: auto; pointer-events: none; }
+.esser.wolf-esser svg { width: clamp(66px, 16vw, 104px); }
+.esser.isst { animation: esser-freut 0.7s ease; }
+@keyframes esser-freut {
+  0%, 100% { transform: translateY(0) scale(1); }
+  30% { transform: translateY(-12px) scale(1.12); }
+  55% { transform: translateY(0) scale(0.96); }
+  75% { transform: translateY(-5px) scale(1.05); }
+}
+.esser-blase {
+  position: absolute;
+  top: -8px;
+  right: 0;
+  font-size: 1.4rem;
+  background: #fffdf5;
+  border-radius: 50%;
+  padding: 3px;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.18);
+  animation: punkt-pop 0.4s ease;
+  pointer-events: none;
+}
+
+.korb-rahmen {
+  width: 100%;
+  padding: 6px 8px calc(10px + env(safe-area-inset-bottom));
+}
+.korb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  background: #f2d8a0;
+  border: 3px solid #d3b06e;
+  border-radius: 18px;
+  min-height: 76px;
+}
+.kuchen-hinweis { flex: none; opacity: 0.85; }
+.kuchen-hinweis svg { width: 54px; height: 44px; display: block; }
+.korb-item {
+  flex: none;
+  border: 3px solid transparent;
+  background: #fffdf5;
+  border-radius: 14px;
+  padding: 6px;
+  cursor: pointer;
+}
+.korb-item svg { width: clamp(30px, 7.5vw, 44px); height: clamp(30px, 7.5vw, 44px); display: block; pointer-events: none; }
+.korb-item.gewaehlt {
+  border-color: #8fc99b;
+  animation: gewaehlt-pulsieren 0.9s ease-in-out infinite;
+}
+@keyframes gewaehlt-pulsieren {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+/* ---------- Jubel ---------- */
+
+.jubel {
+  position: fixed;
+  inset: 0;
+  background: rgba(90, 125, 63, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 20px;
+}
+.jubel[hidden] { display: none; }
+.jubel-karte {
+  background: #fffdf5;
+  border-radius: 26px;
+  padding: 22px 26px calc(22px + env(safe-area-inset-bottom));
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  animation: karte-rein 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+  max-width: min(92vw, 420px);
+}
+@keyframes karte-rein {
+  from { transform: translateY(60px) scale(0.8); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.jubel-buehne {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+}
+#jubel-text {
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: #5a7d3f;
+  margin: 12px 0 16px;
+}
+.jubel-sticker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: -6px 0 14px;
+  padding: 8px 14px;
+  background: #f4e9f7;
+  border: 3px solid #c9b6d8;
+  border-radius: 16px;
+  animation: punkt-pop 0.5s 0.3s backwards ease;
+}
+.jubel-sticker[hidden] { display: none; }
+.jubel-sticker svg { width: 44px; height: 44px; flex: none; }
+.jubel-sticker span { font-weight: bold; color: #7a5c8f; }
+.jubel-tasten { display: flex; flex-direction: column; gap: 10px; }
+
+.konfetti {
+  position: fixed;
+  top: -20px;
+  width: 12px; height: 12px;
+  border-radius: 3px;
+  z-index: 30;
+  pointer-events: none;
+  animation: konfetti-fall linear forwards;
+}
+@keyframes konfetti-fall {
+  to { transform: translateY(110vh) rotate(720deg); }
+}
+
+/* Kleine Handy-Bildschirme (oder Browser mit großer Leiste): alles eine Stufe kompakter */
+@media (max-height: 720px) {
+  .titel { font-size: clamp(1.15rem, 4.4vw, 1.65rem); margin-top: 6px; }
+  .buehne { margin-top: 4px; }
+  .figur.wolf { width: 60px; }
+  .figur.geiss { width: 40px; }
+  .intro { font-size: 0.8rem; margin: 4px 18px; }
+  .menue { gap: 7px; }
+  .taste.gross { min-height: 46px; padding: 7px 16px; font-size: 1rem; }
+  .taste-bild { font-size: 1.3rem; }
+  .schwierigkeit { margin-top: 6px; }
+  .taste.stufe { padding: 7px 14px; font-size: 0.9rem; }
+  .einstellungen { margin: 8px 0 calc(8px + env(safe-area-inset-bottom)); }
+  .taste.rund { width: 46px; height: 46px; font-size: 1.25rem; }
+  .sonne { width: 48px; height: 48px; }
+  .schuessel-knopf svg { width: clamp(105px, 30vw, 150px); }
+  .ofen-knopf svg { width: clamp(90px, 26vw, 130px); }
+  .karte { max-height: 16vh; }
+}
+
+/* Reduzierte Bewegung respektieren */
+@media (prefers-reduced-motion: reduce) {
+  .huepft, .schwingt, .pendel, .wolke, .sonne, .fangen-wolf { animation: none; }
+}

@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Die sieben Geißlein und der liebe Wolf</title>
+<meta name="description" content="Ein liebevolles Märchenspiel für Kinder ab 5 Jahren: Verstecken suchen, Paare finden, Kuchen backen und Picknick machen mit den sieben Geißlein und dem lieben Wolf.">
+<meta name="theme-color" content="#8fc99b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Sieben Geißlein">
+<link rel="stylesheet" href="css/spiel.css">
+</head>
+<body>
+
+<!-- Wiederverwendbare Figuren (SVG-Symbole) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Geißlein: kleine weiße Ziege -->
+    <g id="sym-geisslein">
+      <ellipse cx="50" cy="72" rx="26" ry="18" fill="#fdfdfb" stroke="#d8d2c4" stroke-width="2"/>
+      <rect x="34" y="84" width="7" height="14" rx="3.5" fill="#e8e2d4"/>
+      <rect x="59" y="84" width="7" height="14" rx="3.5" fill="#e8e2d4"/>
+      <path d="M75 66 q10 -2 8 8" fill="none" stroke="#d8d2c4" stroke-width="5" stroke-linecap="round"/>
+      <path d="M30 30 q-10 -12 -16 -4 q-3 6 8 10 z" fill="#fdfdfb" stroke="#d8d2c4" stroke-width="2"/>
+      <path d="M27 32 q-6 -7 -10 -3 q-1 3 6 6 z" fill="#f6c8cf"/>
+      <path d="M56 28 q4 -14 12 -12 q6 3 -4 14 z" fill="#fdfdfb" stroke="#d8d2c4" stroke-width="2"/>
+      <path d="M58 28 q3 -9 8 -8 q2 2 -4 9 z" fill="#f6c8cf"/>
+      <path d="M36 20 q-2 -10 4 -12" fill="none" stroke="#c9b68a" stroke-width="5" stroke-linecap="round"/>
+      <path d="M52 19 q2 -10 -4 -13" fill="none" stroke="#c9b68a" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="44" cy="38" r="22" fill="#fdfdfb" stroke="#d8d2c4" stroke-width="2"/>
+      <circle cx="37" cy="34" r="3.4" fill="#40372e"/>
+      <circle cx="52" cy="34" r="3.4" fill="#40372e"/>
+      <circle cx="38.2" cy="32.8" r="1.1" fill="#fff"/>
+      <circle cx="53.2" cy="32.8" r="1.1" fill="#fff"/>
+      <ellipse cx="44" cy="47" rx="9" ry="7" fill="#f9efe2"/>
+      <ellipse cx="44" cy="45" rx="3" ry="2.2" fill="#e8a7b0"/>
+      <path d="M39 51 q5 4 10 0" fill="none" stroke="#a4886a" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="29" cy="42" r="3.5" fill="#f6c8cf" opacity="0.7"/>
+      <circle cx="59" cy="42" r="3.5" fill="#f6c8cf" opacity="0.7"/>
+    </g>
+
+    <!-- Der liebe Wolf: grau, mit großem Lächeln -->
+    <g id="sym-wolf">
+      <ellipse cx="60" cy="94" rx="34" ry="24" fill="#9aa7b8" stroke="#7d8a9c" stroke-width="2"/>
+      <ellipse cx="60" cy="102" rx="20" ry="14" fill="#dfe6ee"/>
+      <rect x="40" y="108" width="9" height="16" rx="4.5" fill="#8794a6"/>
+      <rect x="71" y="108" width="9" height="16" rx="4.5" fill="#8794a6"/>
+      <path d="M92 88 q18 -4 14 12 q-3 9 -14 2" fill="#9aa7b8" stroke="#7d8a9c" stroke-width="2"/>
+      <path d="M38 22 l-8 -18 l16 8 z" fill="#9aa7b8" stroke="#7d8a9c" stroke-width="2"/>
+      <path d="M38 20 l-4 -9 l8 4 z" fill="#f6c8cf"/>
+      <path d="M82 22 l8 -18 l-16 8 z" fill="#9aa7b8" stroke="#7d8a9c" stroke-width="2"/>
+      <path d="M82 20 l4 -9 l-8 4 z" fill="#f6c8cf"/>
+      <circle cx="60" cy="44" r="30" fill="#9aa7b8" stroke="#7d8a9c" stroke-width="2"/>
+      <ellipse cx="60" cy="58" rx="16" ry="12" fill="#dfe6ee"/>
+      <circle cx="50" cy="38" r="4.5" fill="#2f3a46"/>
+      <circle cx="70" cy="38" r="4.5" fill="#2f3a46"/>
+      <circle cx="51.5" cy="36.5" r="1.5" fill="#fff"/>
+      <circle cx="71.5" cy="36.5" r="1.5" fill="#fff"/>
+      <path d="M42 28 q4 -4 9 -2" fill="none" stroke="#7d8a9c" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M78 28 q-4 -4 -9 -2" fill="none" stroke="#7d8a9c" stroke-width="2.5" stroke-linecap="round"/>
+      <ellipse cx="60" cy="52" rx="5" ry="4" fill="#3d4854"/>
+      <path d="M48 60 q12 12 24 0" fill="none" stroke="#5b6675" stroke-width="3" stroke-linecap="round"/>
+      <path d="M55 66 q5 5 10 0 q-2 6 -5 6 q-3 0 -5 -6" fill="#e88f9b"/>
+      <circle cx="42" cy="50" r="4" fill="#f6c8cf" opacity="0.55"/>
+      <circle cx="78" cy="50" r="4" fill="#f6c8cf" opacity="0.55"/>
+    </g>
+
+    <!-- Mama Geiß mit Schürze und Brille -->
+    <g id="sym-mama">
+      <ellipse cx="55" cy="86" rx="30" ry="22" fill="#fdfdfb" stroke="#d8d2c4" stroke-width="2"/>
+      <path d="M33 74 h44 q4 22 -22 24 q-26 -2 -22 -24 z" fill="#a9d3e8"/>
+      <path d="M40 78 h30 M37 86 h36" stroke="#8ebcd6" stroke-width="2" fill="none"/>
+      <rect x="42" y="102" width="8" height="14" rx="4" fill="#e8e2d4"/>
+      <rect x="62" y="102" width="8" height="14" rx="4" fill="#e8e2d4"/>
+      <path d="M28 34 q-12 -14 -19 -5 q-3 7 10 11 z" fill="#fdfdfb" stroke="#d8d2c4" stroke-width="2"/>
+      <path d="M60 30 q5 -16 14 -13 q7 4 -5 16 z" fill="#fdfdfb" stroke="#d8d2c4" stroke-width="2"/>
+      <path d="M38 20 q-3 -11 4 -14" fill="none" stroke="#c9b68a" stroke-width="5" stroke-linecap="round"/>
+      <path d="M56 19 q3 -11 -4 -14" fill="none" stroke="#c9b68a" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="47" cy="40" r="24" fill="#fdfdfb" stroke="#d8d2c4" stroke-width="2"/>
+      <circle cx="39" cy="36" r="6.5" fill="none" stroke="#8a7a5c" stroke-width="2"/>
+      <circle cx="56" cy="36" r="6.5" fill="none" stroke="#8a7a5c" stroke-width="2"/>
+      <path d="M45.5 36 h4" stroke="#8a7a5c" stroke-width="2"/>
+      <circle cx="39" cy="36" r="3" fill="#40372e"/>
+      <circle cx="56" cy="36" r="3" fill="#40372e"/>
+      <ellipse cx="47" cy="50" rx="9" ry="7" fill="#f9efe2"/>
+      <ellipse cx="47" cy="48" rx="3" ry="2.2" fill="#e8a7b0"/>
+      <path d="M42 54 q5 4 10 0" fill="none" stroke="#a4886a" stroke-width="2" stroke-linecap="round"/>
+    </g>
+
+    <!-- Keks -->
+    <g id="sym-keks">
+      <circle cx="30" cy="30" r="26" fill="#e0a960" stroke="#c68f47" stroke-width="3"/>
+      <circle cx="22" cy="22" r="4" fill="#7a4a21"/>
+      <circle cx="40" cy="26" r="4" fill="#7a4a21"/>
+      <circle cx="28" cy="40" r="4" fill="#7a4a21"/>
+      <circle cx="41" cy="41" r="3" fill="#7a4a21"/>
+    </g>
+    <!-- Apfel -->
+    <g id="sym-apfel">
+      <path d="M30 14 q2 -8 8 -10" fill="none" stroke="#7a5a2e" stroke-width="4" stroke-linecap="round"/>
+      <path d="M32 12 q12 -8 16 2 q-8 4 -16 -2" fill="#8fc45f"/>
+      <path d="M30 16 q-16 -6 -22 8 q-6 16 8 26 q8 6 14 2 q6 4 14 -2 q14 -10 8 -26 q-6 -14 -22 -8 z" fill="#e66a63" stroke="#c94f4a" stroke-width="2.5"/>
+      <path d="M20 26 q-4 4 -3 10" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity="0.6"/>
+    </g>
+    <!-- Erdbeere -->
+    <g id="sym-erdbeere">
+      <path d="M18 14 h24 l-6 8 h-12 z" fill="#79b95a"/>
+      <path d="M30 10 v8" stroke="#5f9a43" stroke-width="4" stroke-linecap="round"/>
+      <path d="M14 20 q-6 22 16 34 q22 -12 16 -34 q-8 -8 -16 -4 q-8 -4 -16 4 z" fill="#e8556d" stroke="#c93e55" stroke-width="2.5"/>
+      <circle cx="24" cy="30" r="1.8" fill="#ffd9a0"/>
+      <circle cx="36" cy="30" r="1.8" fill="#ffd9a0"/>
+      <circle cx="30" cy="40" r="1.8" fill="#ffd9a0"/>
+    </g>
+    <!-- Bonbon -->
+    <g id="sym-bonbon">
+      <path d="M12 18 l-8 -8 q10 -4 14 2 z" fill="#f6b6c8" stroke="#e08aa4" stroke-width="2"/>
+      <path d="M12 42 l-8 8 q10 4 14 -2 z" fill="#f6b6c8" stroke="#e08aa4" stroke-width="2"/>
+      <path d="M48 18 l8 -8 q-10 -4 -14 2 z" fill="#f6b6c8" stroke="#e08aa4" stroke-width="2"/>
+      <path d="M48 42 l8 8 q-10 4 -14 -2 z" fill="#f6b6c8" stroke="#e08aa4" stroke-width="2"/>
+      <circle cx="30" cy="30" r="18" fill="#f6b6c8" stroke="#e08aa4" stroke-width="2.5"/>
+      <path d="M22 18 q-6 12 0 24 M38 18 q6 12 0 24" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+    </g>
+    <!-- Kuchenstück -->
+    <g id="sym-kuchenstueck">
+      <path d="M8 44 l22 -34 l22 34 q-22 10 -44 0 z" fill="#f2d8a0" stroke="#d3b06e" stroke-width="2.5"/>
+      <path d="M8 44 q22 10 44 0 l0 8 q-22 10 -44 0 z" fill="#e0a960"/>
+      <path d="M30 10 l7 11 q-7 5 -14 0 z" fill="#e88f9b"/>
+      <circle cx="30" cy="8" r="6" fill="#e8556d"/>
+      <circle cx="23" cy="30" r="2.5" fill="#e8556d"/>
+      <circle cx="37" cy="30" r="2.5" fill="#e8556d"/>
+      <circle cx="30" cy="39" r="2.5" fill="#e8556d"/>
+    </g>
+    <!-- Ganzer Kuchen vom Wolf -->
+    <g id="sym-kuchen">
+      <ellipse cx="40" cy="52" rx="38" ry="10" fill="#c99e6a"/>
+      <path d="M8 30 h64 v20 q-32 12 -64 0 z" fill="#f2d8a0" stroke="#d3b06e" stroke-width="2.5"/>
+      <path d="M8 30 q8 10 16 0 q8 10 16 0 q8 10 16 0 q8 10 16 0 l0 8 q-32 12 -64 0 z" fill="#e88f9b" opacity="0.9"/>
+      <ellipse cx="40" cy="30" rx="32" ry="9" fill="#f9e7c4" stroke="#d3b06e" stroke-width="2"/>
+      <circle cx="26" cy="24" r="5" fill="#e8556d"/>
+      <circle cx="40" cy="21" r="5" fill="#e8556d"/>
+      <circle cx="54" cy="24" r="5" fill="#e8556d"/>
+    </g>
+    <!-- Brokkoli -->
+    <g id="sym-brokkoli">
+      <path d="M25 34 h10 l3 20 q-8 4 -16 0 z" fill="#a8c97a" stroke="#84a95a" stroke-width="2"/>
+      <circle cx="18" cy="26" r="12" fill="#5e9146"/>
+      <circle cx="30" cy="17" r="14" fill="#6da150"/>
+      <circle cx="43" cy="26" r="12" fill="#5e9146"/>
+      <circle cx="30" cy="30" r="11" fill="#77ab5b"/>
+    </g>
+    <!-- Zwiebel -->
+    <g id="sym-zwiebel">
+      <path d="M28 6 q2 -4 4 0 l2 8 h-8 z" fill="#b98d4f"/>
+      <path d="M30 14 q-22 6 -22 24 q0 16 22 16 q22 0 22 -16 q0 -18 -22 -24 z" fill="#e8c48f" stroke="#c69a5e" stroke-width="2.5"/>
+      <path d="M30 16 q-8 10 -8 22 q0 10 8 14 M30 16 q8 10 8 22 q0 10 -8 14" fill="none" stroke="#c69a5e" stroke-width="2" opacity="0.7"/>
+    </g>
+    <!-- Karotte -->
+    <g id="sym-karotte">
+      <path d="M26 8 q-6 -8 -2 -10 M30 10 q0 -10 4 -10 M34 8 q6 -8 2 -10" fill="none" stroke="#5f9a43" stroke-width="4" stroke-linecap="round" transform="translate(0,10)"/>
+      <path d="M22 18 h16 l-6 38 q-2 4 -4 0 z" fill="#ef9c4e" stroke="#d07f33" stroke-width="2.5"/>
+      <path d="M24 28 h11 M25 38 h8" stroke="#d07f33" stroke-width="2" stroke-linecap="round"/>
+    </g>
+    <!-- Blume -->
+    <g id="sym-blume">
+      <circle cx="30" cy="18" r="9" fill="#f6b6c8"/>
+      <circle cx="42" cy="27" r="9" fill="#f6b6c8"/>
+      <circle cx="18" cy="27" r="9" fill="#f6b6c8"/>
+      <circle cx="24" cy="40" r="9" fill="#f6b6c8"/>
+      <circle cx="36" cy="40" r="9" fill="#f6b6c8"/>
+      <circle cx="30" cy="30" r="8" fill="#f9d867"/>
+    </g>
+    <!-- Uhr -->
+    <g id="sym-uhr">
+      <circle cx="30" cy="30" r="24" fill="#fdf3d8" stroke="#b98d4f" stroke-width="4"/>
+      <path d="M30 30 V16 M30 30 l9 7" stroke="#5c4a2e" stroke-width="3.5" stroke-linecap="round"/>
+      <circle cx="30" cy="30" r="2.6" fill="#5c4a2e"/>
+    </g>
+    <!-- Herz -->
+    <g id="sym-herz">
+      <path d="M30 52 q-24 -16 -24 -32 q0 -12 12 -12 q8 0 12 8 q4 -8 12 -8 q12 0 12 12 q0 16 -24 32 z" fill="#e8556d" stroke="#c93e55" stroke-width="2.5"/>
+      <path d="M14 18 q0 -6 6 -7" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+    </g>
+    <!-- Zutaten fürs Backen -->
+    <g id="sym-mehl">
+      <path d="M14 16 q16 -10 32 0 l6 34 q-22 10 -44 0 z" fill="#f0e3cb" stroke="#cbb694" stroke-width="2.5"/>
+      <path d="M14 16 q16 8 32 0" fill="none" stroke="#cbb694" stroke-width="2.5"/>
+      <path d="M12 12 q18 -8 36 0 l-2 6 q-16 -8 -32 0 z" fill="#cbb694"/>
+      <path d="M30 26 v18 M24 30 q6 -4 12 0 M23 37 q7 -5 14 0" stroke="#b98d4f" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    </g>
+    <g id="sym-ei">
+      <path d="M30 6 q16 12 16 32 q0 16 -16 16 q-16 0 -16 -16 q0 -20 16 -32 z" fill="#fdf6e3" stroke="#e0d5b8" stroke-width="2.5"/>
+      <path d="M22 28 q-2 6 0 12" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round"/>
+    </g>
+    <g id="sym-zucker">
+      <path d="M12 20 h36 v34 q-18 8 -36 0 z" fill="#cfe6f2" stroke="#9cc3d8" stroke-width="2.5"/>
+      <path d="M12 20 l6 -12 h24 l6 12 z" fill="#e4f2f9" stroke="#9cc3d8" stroke-width="2.5"/>
+      <circle cx="22" cy="34" r="2" fill="#ffffff"/>
+      <circle cx="32" cy="42" r="2" fill="#ffffff"/>
+      <circle cx="40" cy="32" r="2" fill="#ffffff"/>
+      <circle cx="26" cy="47" r="2" fill="#ffffff"/>
+    </g>
+    <g id="sym-butter">
+      <path d="M8 34 h44 v14 q-22 8 -44 0 z" fill="#f6dc8a" stroke="#d9b95c" stroke-width="2.5"/>
+      <path d="M8 34 l8 -12 h36 l-8 12 z" fill="#f9e7ad" stroke="#d9b95c" stroke-width="2.5"/>
+      <path d="M52 34 l8 -12 v12 q0 8 -8 12 z" fill="#eccd74" stroke="#d9b95c" stroke-width="2.5"/>
+    </g>
+    <g id="sym-milch">
+      <path d="M18 18 h24 l4 10 v28 q-16 6 -32 0 v-28 z" fill="#ffffff" stroke="#a9c8d8" stroke-width="2.5"/>
+      <path d="M18 18 l-4 10 h32" fill="none" stroke="#a9c8d8" stroke-width="2.5"/>
+      <rect x="22" y="8" width="16" height="10" rx="3" fill="#a9d3e8" stroke="#8ebcd6" stroke-width="2"/>
+      <path d="M20 40 q10 6 20 0" fill="none" stroke="#a9d3e8" stroke-width="3" stroke-linecap="round"/>
+    </g>
+  </defs>
+</svg>
+
+<main id="app">
+
+  <!-- Startbildschirm -->
+  <section class="screen active" id="screen-start">
+    <div class="himmel">
+      <div class="sonne"></div>
+      <div class="wolke w1"></div>
+      <div class="wolke w2"></div>
+    </div>
+    <h1 class="titel">Die sieben Geißlein<br><span>und der liebe Wolf</span></h1>
+    <div class="buehne">
+      <svg viewBox="0 0 120 130" class="figur wolf schwingt" data-stimme="wolf"><use href="#sym-wolf"/></svg>
+      <svg viewBox="0 0 100 100" class="figur geiss huepft h1" data-stimme="geiss"><use href="#sym-geisslein"/></svg>
+      <svg viewBox="0 0 100 100" class="figur geiss huepft h2" data-stimme="geiss"><use href="#sym-geisslein"/></svg>
+      <svg viewBox="0 0 100 100" class="figur geiss huepft h3" data-stimme="geiss"><use href="#sym-geisslein"/></svg>
+    </div>
+    <p class="intro" id="intro-text">Der liebe Wolf ist zu Besuch bei den sieben Geißlein.<br>Heute wird zusammen gespielt! (Tippe mal auf die Tiere!)</p>
+    <nav class="menue">
+      <button class="taste gross" data-spiel="verstecken">
+        <span class="taste-bild">🙈</span> Verstecken suchen
+      </button>
+      <button class="taste gross" data-spiel="memory">
+        <span class="taste-bild">🃏</span> Paare finden
+      </button>
+      <button class="taste gross" data-spiel="backen">
+        <span class="taste-bild">🎂</span> Kuchen backen
+      </button>
+      <button class="taste gross" data-spiel="fangen">
+        <span class="taste-bild">🧺</span> Picknick-Spiel
+      </button>
+      <button class="taste gross" id="btn-album">
+        <span class="taste-bild">🏅</span> Sticker-Album
+      </button>
+    </nav>
+    <div class="schwierigkeit" role="group" aria-label="Schwierigkeit beim Verstecken">
+      <button class="taste stufe" id="btn-klein">🐣 Klein</button>
+      <button class="taste stufe" id="btn-gross">🦊 Groß</button>
+    </div>
+    <div class="einstellungen">
+      <button class="taste rund" id="btn-ton" aria-label="Ton an oder aus">🔊</button>
+      <button class="taste rund" id="btn-musik" aria-label="Musik an oder aus">🎵</button>
+      <button class="taste rund" id="btn-vorlesen" aria-label="Vorlesen an oder aus">🗣️</button>
+    </div>
+  </section>
+
+  <!-- Spiel 1: Verstecken suchen (3 Räume, nur 7 Verstecke sind belegt!) -->
+  <section class="screen" id="screen-verstecken">
+    <header class="spielkopf">
+      <button class="taste rund zurueck" data-ziel="start" aria-label="Zurück">⬅️</button>
+      <div class="fortschritt" id="verstecken-fortschritt" aria-label="Gefundene Geißlein"></div>
+      <button class="taste rund" data-hilfe="verstecken" aria-label="Anleitung vorlesen">❓</button>
+    </header>
+    <p class="anweisung" id="verstecken-anweisung">Die Geißlein haben sich versteckt – aber nicht überall steckt eins!</p>
+    <div class="versuche" id="versuche-anzeige" hidden></div>
+    <div class="zimmer-rahmen">
+
+      <!-- Raum 1: Wohnzimmer (12 Verstecke) -->
+      <svg class="zimmer-szene" data-raum="wohnzimmer" viewBox="0 0 800 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Wohnzimmer der Geißlein">
+        <rect x="0" y="0" width="800" height="400" fill="#f7e8c8"/>
+        <rect x="0" y="400" width="800" height="120" fill="#c99e6a"/>
+        <line x1="0" y1="400" x2="800" y2="400" stroke="#a97f4f" stroke-width="4"/>
+
+        <g class="versteck" data-name="Im Uhrkasten" transform="translate(30,120)">
+          <g class="geiss-pop" transform="translate(8,-62) scale(0.72)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="0" width="92" height="270" rx="10" fill="#a9743f" stroke="#7d5228" stroke-width="4"/>
+            <rect x="12" y="112" width="68" height="146" rx="8" fill="#c08c52"/>
+            <use href="#sym-uhr" transform="translate(16,22) scale(0.98)"/>
+            <circle class="pendel" cx="46" cy="190" r="13" fill="#f0c869" stroke="#b98d4f" stroke-width="3"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter dem Bild" transform="translate(170,66)">
+          <g class="geiss-pop" transform="translate(6,-50) scale(0.6)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="0" width="76" height="60" rx="4" fill="#fdf6e3" stroke="#a97f4f" stroke-width="5"/>
+            <use href="#sym-blume" transform="translate(8,2) scale(0.62)"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Bücherregal" transform="translate(300,60)">
+          <g class="geiss-pop" transform="translate(56,-52) scale(0.66)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="0" width="170" height="120" rx="8" fill="#a9743f" stroke="#7d5228" stroke-width="4"/>
+            <rect x="8" y="10" width="154" height="44" fill="#c08c52"/>
+            <rect x="8" y="66" width="154" height="44" fill="#c08c52"/>
+            <g>
+              <rect x="14" y="16" width="16" height="38" fill="#e8556d"/><rect x="32" y="20" width="16" height="34" fill="#8fc45f"/>
+              <rect x="50" y="14" width="16" height="40" fill="#a9d3e8"/><rect x="68" y="22" width="16" height="32" fill="#f9d867"/>
+              <rect x="120" y="18" width="16" height="36" fill="#e88f9b"/>
+              <rect x="20" y="74" width="16" height="34" fill="#f9d867"/><rect x="38" y="70" width="16" height="38" fill="#e8556d"/>
+              <rect x="100" y="72" width="16" height="36" fill="#8fc45f"/><rect x="118" y="76" width="16" height="32" fill="#a9d3e8"/>
+            </g>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter dem Vorhang" transform="translate(690,50)">
+          <g class="geiss-pop" transform="translate(6,84) scale(0.68)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="-160" y="12" width="164" height="110" rx="8" fill="#bfe3f2" stroke="#8a6b43" stroke-width="7"/>
+            <line x1="-78" y1="12" x2="-78" y2="122" stroke="#8a6b43" stroke-width="5"/>
+            <circle cx="-120" cy="45" r="14" fill="#f9d867"/>
+            <path class="vorhang-stoff" d="M0 0 q42 10 42 70 q0 62 -18 132 l-24 0 z" fill="#e88f9b"/>
+            <path d="M0 0 q42 10 42 70 q0 62 -18 132" fill="none" stroke="#d4707e" stroke-width="3"/>
+            <rect x="-172" y="-8" width="222" height="12" rx="6" fill="#8a6b43"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Ofen" transform="translate(50,262)">
+          <g class="geiss-pop" transform="translate(18,-54) scale(0.68)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="10" y="-56" width="24" height="64" fill="#8d8d95"/>
+            <rect x="0" y="0" width="120" height="138" rx="12" fill="#a6a6ae" stroke="#7c7c85" stroke-width="4"/>
+            <rect x="16" y="20" width="88" height="62" rx="10" fill="#3f3f47"/>
+            <path d="M28 66 q11 -24 22 0 q11 -24 22 0 q9 -20 20 0" fill="#f2a05e"/>
+            <rect x="16" y="98" width="88" height="14" rx="7" fill="#8d8d95"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter dem Sessel" transform="translate(200,282)">
+          <g class="geiss-pop" transform="translate(28,-52) scale(0.68)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="8" y="0" width="96" height="70" rx="16" fill="#8fb8c9" stroke="#6d96a8" stroke-width="3"/>
+            <rect x="0" y="50" width="112" height="48" rx="14" fill="#a3c6d4" stroke="#6d96a8" stroke-width="3"/>
+            <rect x="0" y="44" width="24" height="56" rx="10" fill="#8fb8c9" stroke="#6d96a8" stroke-width="3"/>
+            <rect x="88" y="44" width="24" height="56" rx="10" fill="#8fb8c9" stroke="#6d96a8" stroke-width="3"/>
+            <rect x="12" y="98" width="14" height="20" rx="6" fill="#7d5228"/>
+            <rect x="86" y="98" width="14" height="20" rx="6" fill="#7d5228"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Unter dem Tisch" transform="translate(350,292)">
+          <g class="geiss-pop" transform="translate(46,26) scale(0.68)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="0" width="170" height="18" rx="9" fill="#b5804a" stroke="#7d5228" stroke-width="3"/>
+            <rect x="12" y="18" width="15" height="106" rx="6" fill="#a9743f"/>
+            <rect x="143" y="18" width="15" height="106" rx="6" fill="#a9743f"/>
+            <rect x="48" y="-24" width="74" height="24" rx="6" fill="#fdf6e3" stroke="#e0d5b8" stroke-width="2"/>
+            <use href="#sym-apfel" transform="translate(56,-22) scale(0.36)"/>
+            <use href="#sym-keks" transform="translate(86,-20) scale(0.34)"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Bett" transform="translate(555,312)">
+          <g class="geiss-pop" transform="translate(52,-40) scale(0.66)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="-36" width="22" height="128" rx="8" fill="#a9743f"/>
+            <rect x="168" y="-18" width="22" height="110" rx="8" fill="#a9743f"/>
+            <rect x="8" y="28" width="174" height="42" rx="10" fill="#b5804a"/>
+            <rect x="14" y="4" width="162" height="38" rx="14" fill="#a9d3e8"/>
+            <path d="M14 22 q81 20 162 0 l0 20 q-81 12 -162 0 z" fill="#8ebcd6"/>
+            <ellipse cx="46" cy="12" rx="24" ry="11" fill="#fdf6e3"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Waschzuber" transform="translate(40,436)">
+          <g class="geiss-pop" transform="translate(22,-50) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M0 0 h120 l-13 52 h-94 z" fill="#8fb8c9" stroke="#6d96a8" stroke-width="4"/>
+            <ellipse cx="60" cy="2" rx="60" ry="11" fill="#bfe3f2" stroke="#6d96a8" stroke-width="4"/>
+            <circle cx="38" cy="0" r="5" fill="#e4f4fb"/>
+            <circle cx="72" cy="3" r="4.5" fill="#e4f4fb"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Wäschekorb" transform="translate(240,442)">
+          <g class="geiss-pop" transform="translate(26,-48) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M0 0 h110 l-12 52 h-86 z" fill="#d9b384" stroke="#a97f4f" stroke-width="4"/>
+            <path d="M6 14 h98 M10 30 h90" stroke="#a97f4f" stroke-width="3" opacity="0.7"/>
+            <path d="M18 -8 q20 -12 36 0 q16 -10 30 2 l-4 8 q-28 -8 -58 0 z" fill="#e88f9b" opacity="0.9"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Unterm Teppich" transform="translate(430,452)">
+          <g class="geiss-pop" transform="translate(34,-46) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M0 22 q60 -30 130 0 q-60 22 -130 0 z" fill="#e88f9b" stroke="#d4707e" stroke-width="3"/>
+            <path d="M14 18 q46 -18 102 0" fill="none" stroke="#f6b6c8" stroke-width="4"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="In der Truhe" transform="translate(620,436)">
+          <g class="geiss-pop" transform="translate(42,-50) scale(0.66)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="10" width="140" height="58" rx="10" fill="#a9743f" stroke="#7d5228" stroke-width="4"/>
+            <path d="M0 14 q70 -22 140 0 l0 6 h-140 z" fill="#b5804a" stroke="#7d5228" stroke-width="4"/>
+            <rect x="62" y="24" width="16" height="14" rx="4" fill="#f0c869"/>
+          </g>
+        </g>
+
+        <g transform="translate(310,404) scale(0.62)"><use href="#sym-wolf"/></g>
+      </svg>
+
+      <!-- Raum 2: Küche (12 Verstecke) -->
+      <svg class="zimmer-szene" data-raum="kueche" viewBox="0 0 800 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Küche der Geißlein" hidden>
+        <rect x="0" y="0" width="800" height="400" fill="#eef0da"/>
+        <rect x="0" y="400" width="800" height="120" fill="#d9c49a"/>
+        <line x1="0" y1="400" x2="800" y2="400" stroke="#b8a276" stroke-width="4"/>
+        <rect x="460" y="60" width="120" height="96" rx="8" fill="#bfe3f2" stroke="#9a8a63" stroke-width="6"/>
+        <line x1="520" y1="60" x2="520" y2="156" stroke="#9a8a63" stroke-width="4"/>
+
+        <g class="versteck" data-name="Im Hängeschrank" transform="translate(30,56)">
+          <g class="geiss-pop" transform="translate(52,-50) scale(0.66)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="0" width="180" height="100" rx="10" fill="#b5804a" stroke="#7d5228" stroke-width="4"/>
+            <line x1="90" y1="6" x2="90" y2="94" stroke="#7d5228" stroke-width="4"/>
+            <circle cx="78" cy="50" r="6" fill="#f0c869"/>
+            <circle cx="102" cy="50" r="6" fill="#f0c869"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Auf dem Vorratsbrett" transform="translate(250,74)">
+          <g class="geiss-pop" transform="translate(56,-50) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="40" width="170" height="12" rx="6" fill="#a9743f"/>
+            <path d="M14 6 h56 v34 h-56 z" fill="#c08c52" stroke="#8a6b43" stroke-width="3"/>
+            <path d="M14 6 q28 -12 56 0" fill="#a9743f" stroke="#8a6b43" stroke-width="3"/>
+            <rect x="86" y="8" width="26" height="32" rx="5" fill="#f9d867" stroke="#d3b06e" stroke-width="2"/>
+            <rect x="120" y="4" width="26" height="36" rx="5" fill="#e8556d" opacity="0.8" stroke="#c93e55" stroke-width="2"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter den Gläsern" transform="translate(600,56)">
+          <g class="geiss-pop" transform="translate(56,-46) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="44" width="170" height="13" rx="6" fill="#a9743f"/>
+            <rect x="14" y="6" width="28" height="38" rx="5" fill="#e8c48f" stroke="#c69a5e" stroke-width="2"/>
+            <rect x="52" y="2" width="28" height="42" rx="5" fill="#8fc45f" opacity="0.8" stroke="#6da150" stroke-width="2"/>
+            <rect x="90" y="10" width="28" height="34" rx="5" fill="#a9d3e8" stroke="#8ebcd6" stroke-width="2"/>
+            <rect x="128" y="4" width="28" height="40" rx="5" fill="#f6b6c8" stroke="#e08aa4" stroke-width="2"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im großen Topf" transform="translate(50,250)">
+          <g class="geiss-pop" transform="translate(28,-62) scale(0.68)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="58" width="150" height="150" rx="12" fill="#a6a6ae" stroke="#7c7c85" stroke-width="4"/>
+            <circle cx="45" cy="88" r="15" fill="#3f3f47"/>
+            <circle cx="105" cy="88" r="15" fill="#3f3f47"/>
+            <rect x="14" y="126" width="122" height="58" rx="8" fill="#8d8d95"/>
+            <path d="M30 28 h90 v30 h-90 z" fill="#6d96a8" stroke="#54798a" stroke-width="3"/>
+            <ellipse cx="75" cy="28" rx="45" ry="10" fill="#8fb8c9" stroke="#54798a" stroke-width="3"/>
+            <path d="M20 22 q-10 4 -6 12 M130 22 q10 4 6 12" fill="none" stroke="#54798a" stroke-width="5" stroke-linecap="round"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Unter der Spüle" transform="translate(240,272)">
+          <g class="geiss-pop" transform="translate(38,62) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="0" width="150" height="132" rx="10" fill="#b5804a" stroke="#7d5228" stroke-width="4"/>
+            <path d="M18 -16 h114 l-8 20 h-98 z" fill="#c6cdd6" stroke="#9aa2ad" stroke-width="3"/>
+            <path d="M56 -16 q0 -24 22 -24 q13 0 13 13" fill="none" stroke="#9aa2ad" stroke-width="6" stroke-linecap="round"/>
+            <path d="M12 12 q63 15 126 0 l0 108 q-63 13 -126 0 z" fill="#f6b6c8" opacity="0.95"/>
+            <path d="M44 14 q4 56 0 102 M84 16 q-4 56 0 100 M116 14 q4 56 0 102" fill="none" stroke="#e08aa4" stroke-width="2.5" opacity="0.7"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Unter dem Küchentisch" transform="translate(430,292)">
+          <g class="geiss-pop" transform="translate(44,24) scale(0.66)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="0" width="160" height="17" rx="8" fill="#a9743f" stroke="#7d5228" stroke-width="3"/>
+            <rect x="11" y="17" width="14" height="100" rx="6" fill="#96652f"/>
+            <rect x="135" y="17" width="14" height="100" rx="6" fill="#96652f"/>
+            <rect x="32" y="-28" width="94" height="28" rx="6" fill="#fdf6e3" stroke="#e0d5b8" stroke-width="2"/>
+            <use href="#sym-erdbeere" transform="translate(42,-26) scale(0.4)"/>
+            <use href="#sym-keks" transform="translate(78,-24) scale(0.36)"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter dem Besen" transform="translate(608,252)">
+          <g class="geiss-pop" transform="translate(-34,84) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="22" y="0" width="11" height="170" rx="5" fill="#b98d4f" transform="rotate(7 28 85)"/>
+            <path d="M6 162 h54 l9 42 q-36 11 -72 0 z" fill="#e8c48f" stroke="#c69a5e" stroke-width="3" transform="rotate(7 33 180)"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Kühlschrank" transform="translate(688,218)">
+          <g class="geiss-pop" transform="translate(18,-52) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="0" width="100" height="182" rx="12" fill="#dfe6ee" stroke="#9aa2ad" stroke-width="4"/>
+            <line x1="6" y1="62" x2="94" y2="62" stroke="#9aa2ad" stroke-width="4"/>
+            <rect x="78" y="20" width="8" height="28" rx="4" fill="#9aa2ad"/>
+            <rect x="78" y="78" width="8" height="40" rx="4" fill="#9aa2ad"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="In der Apfelkiste" transform="translate(50,440)">
+          <g class="geiss-pop" transform="translate(34,-48) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M0 0 h130 l-9 56 h-112 z" fill="#c08c52" stroke="#8a6b43" stroke-width="4"/>
+            <line x1="7" y1="18" x2="123" y2="18" stroke="#8a6b43" stroke-width="3"/>
+            <use href="#sym-apfel" transform="translate(16,-14) scale(0.46)"/>
+            <use href="#sym-apfel" transform="translate(52,-18) scale(0.46)"/>
+            <use href="#sym-apfel" transform="translate(88,-12) scale(0.46)"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter dem Mehlsack" transform="translate(230,432)">
+          <g class="geiss-pop" transform="translate(28,-48) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <use href="#sym-mehl" transform="translate(6,-2) scale(1.7)"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Fass" transform="translate(390,428)">
+          <g class="geiss-pop" transform="translate(22,-52) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M4 0 q41 -12 82 0 l-7 88 q-34 10 -68 0 z" fill="#8a6b43" stroke="#6b4f2e" stroke-width="4"/>
+            <ellipse cx="45" cy="0" rx="42" ry="10" fill="#a97f4f" stroke="#6b4f2e" stroke-width="4"/>
+            <path d="M6 30 q39 10 78 0 M9 60 q36 10 72 0" fill="none" stroke="#6b4f2e" stroke-width="4"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Eimer" transform="translate(548,446)">
+          <g class="geiss-pop" transform="translate(16,-46) scale(0.6)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M0 0 h84 l-10 50 h-64 z" fill="#8fb8c9" stroke="#6d96a8" stroke-width="4"/>
+            <ellipse cx="42" cy="0" rx="42" ry="9" fill="#bfe3f2" stroke="#6d96a8" stroke-width="4"/>
+            <path d="M4 -4 q38 -30 76 0" fill="none" stroke="#6d96a8" stroke-width="5" stroke-linecap="round"/>
+          </g>
+        </g>
+
+        <g transform="translate(668,428) scale(0.6)"><use href="#sym-wolf"/></g>
+      </svg>
+
+      <!-- Raum 3: Garten (11 Verstecke) -->
+      <svg class="zimmer-szene" data-raum="garten" viewBox="0 0 800 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Garten der Geißlein" hidden>
+        <rect x="0" y="0" width="800" height="340" fill="#bfe3f2"/>
+        <rect x="0" y="340" width="800" height="180" fill="#8fc45f"/>
+        <path d="M0 340 q200 -20 400 0 q200 20 400 0 l0 20 l-800 0 z" fill="#7db34e"/>
+        <circle cx="720" cy="60" r="32" fill="#f9d867"/>
+        <ellipse cx="200" cy="60" rx="52" ry="18" fill="#ffffff" opacity="0.9"/>
+        <ellipse cx="250" cy="48" rx="38" ry="15" fill="#ffffff" opacity="0.9"/>
+        <ellipse cx="500" cy="90" rx="42" ry="15" fill="#ffffff" opacity="0.85"/>
+
+        <g class="versteck" data-name="Hinter dem Baum" transform="translate(20,70)">
+          <g class="geiss-pop" transform="translate(80,192) scale(0.66)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="50" y="136" width="38" height="146" rx="12" fill="#96652f"/>
+            <path d="M50 194 q-18 -8 -26 -24" fill="none" stroke="#96652f" stroke-width="11" stroke-linecap="round"/>
+            <circle cx="70" cy="86" r="62" fill="#6da150"/>
+            <circle cx="26" cy="114" r="40" fill="#77ab5b"/>
+            <circle cx="114" cy="112" r="42" fill="#77ab5b"/>
+            <circle cx="50" cy="64" r="9" fill="#e66a63"/>
+            <circle cx="96" cy="76" r="9" fill="#e66a63"/>
+            <circle cx="74" cy="114" r="9" fill="#e66a63"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter dem Holzstapel" transform="translate(180,300)">
+          <g class="geiss-pop" transform="translate(48,-50) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <g stroke="#6b4f2e" stroke-width="3">
+              <circle cx="24" cy="70" r="18" fill="#b5804a"/><circle cx="62" cy="70" r="18" fill="#a9743f"/>
+              <circle cx="100" cy="70" r="18" fill="#b5804a"/><circle cx="43" cy="40" r="18" fill="#a9743f"/>
+              <circle cx="81" cy="40" r="18" fill="#c08c52"/><circle cx="62" cy="12" r="18" fill="#b5804a"/>
+            </g>
+            <g fill="#e8c48f">
+              <circle cx="24" cy="70" r="8"/><circle cx="62" cy="70" r="8"/><circle cx="100" cy="70" r="8"/>
+              <circle cx="43" cy="40" r="8"/><circle cx="81" cy="40" r="8"/><circle cx="62" cy="12" r="8"/>
+            </g>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="In der Regentonne" transform="translate(350,290)">
+          <g class="geiss-pop" transform="translate(22,-56) scale(0.66)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M4 0 q44 -13 88 0 l-8 104 q-36 11 -72 0 z" fill="#8a6b43" stroke="#6b4f2e" stroke-width="4"/>
+            <ellipse cx="48" cy="0" rx="45" ry="11" fill="#a97f4f" stroke="#6b4f2e" stroke-width="4"/>
+            <path d="M6 33 q42 11 84 0 M10 69 q38 11 76 0" fill="none" stroke="#6b4f2e" stroke-width="5"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter den Sonnenblumen" transform="translate(500,240)">
+          <g class="geiss-pop" transform="translate(28,102) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="24" y="56" width="10" height="140" rx="5" fill="#5f9a43"/>
+            <circle cx="29" cy="48" r="25" fill="#f9d867"/>
+            <circle cx="29" cy="48" r="11" fill="#8a6b43"/>
+            <rect x="74" y="86" width="10" height="116" rx="5" fill="#5f9a43"/>
+            <circle cx="79" cy="76" r="21" fill="#f9d867"/>
+            <circle cx="79" cy="76" r="10" fill="#8a6b43"/>
+            <rect x="120" y="66" width="10" height="136" rx="5" fill="#5f9a43"/>
+            <circle cx="125" cy="56" r="23" fill="#f9d867"/>
+            <circle cx="125" cy="56" r="10" fill="#8a6b43"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Gartenhäuschen" transform="translate(640,150)">
+          <g class="geiss-pop" transform="translate(52,120) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="10" y="66" width="140" height="134" fill="#c08c52" stroke="#8a6b43" stroke-width="4"/>
+            <path d="M0 70 l80 -60 l80 60 z" fill="#a9743f" stroke="#7d5228" stroke-width="4"/>
+            <rect x="58" y="114" width="44" height="86" rx="6" fill="#7d5228"/>
+            <circle cx="92" cy="158" r="5" fill="#f0c869"/>
+            <rect x="22" y="88" width="28" height="24" rx="4" fill="#bfe3f2" stroke="#7d5228" stroke-width="3"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter dem Zaun" transform="translate(120,404)">
+          <g class="geiss-pop" transform="translate(52,-54) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="0" y="18" width="160" height="11" rx="5" fill="#c99e6a"/>
+            <rect x="0" y="54" width="160" height="11" rx="5" fill="#c99e6a"/>
+            <path d="M9 0 h19 v90 h-19 z M49 0 h19 v90 h-19 z M89 0 h19 v90 h-19 z M129 0 h19 v90 h-19 z" fill="#d9b384" stroke="#a97f4f" stroke-width="3"/>
+            <path d="M9 0 l9.5 -11 l9.5 11 M49 0 l9.5 -11 l9.5 11 M89 0 l9.5 -11 l9.5 11 M129 0 l9.5 -11 l9.5 11" fill="#d9b384" stroke="#a97f4f" stroke-width="3"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Busch" transform="translate(320,420)">
+          <g class="geiss-pop" transform="translate(36,-52) scale(0.64)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <circle cx="30" cy="34" r="30" fill="#6da150"/>
+            <circle cx="72" cy="26" r="36" fill="#77ab5b"/>
+            <circle cx="108" cy="38" r="27" fill="#6da150"/>
+            <circle cx="50" cy="20" r="6" fill="#e8556d"/>
+            <circle cx="88" cy="14" r="6" fill="#e8556d"/>
+            <circle cx="72" cy="40" r="6" fill="#e8556d"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="In der Schubkarre" transform="translate(490,424)">
+          <g class="geiss-pop" transform="translate(44,-52) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M0 0 h140 l-19 46 h-102 z" fill="#6d96a8" stroke="#54798a" stroke-width="4"/>
+            <circle cx="42" cy="62" r="18" fill="#5c4a2e" stroke="#40372e" stroke-width="4"/>
+            <circle cx="42" cy="62" r="6" fill="#c6cdd6"/>
+            <path d="M140 4 l36 18 M0 4 l-22 24" stroke="#54798a" stroke-width="6" stroke-linecap="round"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Im Heuhaufen" transform="translate(660,406)">
+          <g class="geiss-pop" transform="translate(30,-50) scale(0.62)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M0 62 q4 -50 50 -60 q46 10 50 60 q-50 16 -100 0 z" fill="#e8c48f" stroke="#c69a5e" stroke-width="3"/>
+            <path d="M20 44 q6 -20 18 -28 M50 38 q0 -18 0 -30 M78 46 q-6 -20 -16 -30" fill="none" stroke="#c69a5e" stroke-width="2.5"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter dem Blumentopf" transform="translate(448,354)">
+          <g class="geiss-pop" transform="translate(12,-48) scale(0.6)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <path d="M0 22 h76 l-10 48 h-56 z" fill="#d07f33" stroke="#a95f22" stroke-width="3"/>
+            <rect x="-4" y="10" width="84" height="14" rx="6" fill="#ef9c4e" stroke="#a95f22" stroke-width="3"/>
+            <use href="#sym-blume" transform="translate(8,-38) scale(0.9)"/>
+          </g>
+        </g>
+
+        <g class="versteck" data-name="Hinter der Gießkanne" transform="translate(30,430)">
+          <g class="geiss-pop" transform="translate(24,-46) scale(0.6)"><use href="#sym-geisslein"/></g>
+          <g class="moebel">
+            <rect x="14" y="10" width="64" height="56" rx="12" fill="#8fc99b" stroke="#6ba777" stroke-width="4"/>
+            <path d="M14 24 l-14 -14 l8 -8 l16 14" fill="#8fc99b" stroke="#6ba777" stroke-width="4" stroke-linejoin="round"/>
+            <path d="M24 10 q22 -18 44 0" fill="none" stroke="#6ba777" stroke-width="5" stroke-linecap="round"/>
+          </g>
+        </g>
+
+        <g transform="translate(600,392) scale(0.6)"><use href="#sym-wolf"/></g>
+      </svg>
+
+    </div>
+  </section>
+
+  <!-- Spiel 2: Memory -->
+  <section class="screen" id="screen-memory">
+    <header class="spielkopf">
+      <button class="taste rund zurueck" data-ziel="start" aria-label="Zurück">⬅️</button>
+      <div class="fortschritt" id="memory-fortschritt" aria-label="Gefundene Paare"></div>
+      <button class="taste rund" data-hilfe="memory" aria-label="Anleitung vorlesen">❓</button>
+    </header>
+    <p class="anweisung">Finde immer zwei gleiche Bilder!</p>
+    <div id="memory-feld" class="memory-feld"></div>
+  </section>
+
+  <!-- Spiel 3: Kuchen backen -->
+  <section class="screen" id="screen-backen">
+    <header class="spielkopf">
+      <button class="taste rund zurueck" data-ziel="start" aria-label="Zurück">⬅️</button>
+      <div class="fortschritt" id="backen-fortschritt" aria-label="Backschritte"></div>
+      <button class="taste rund" data-hilfe="backen" aria-label="Anleitung vorlesen">❓</button>
+    </header>
+    <p class="anweisung" id="backen-anweisung">Backe mit dem Wolf einen Kuchen!</p>
+    <div class="rezept" id="rezept" aria-label="Rezept"></div>
+    <div class="backstube">
+      <div class="backen-mitte">
+        <button class="schuessel-knopf" id="schuessel" aria-label="Schüssel – zum Rühren tippen">
+          <svg viewBox="0 0 160 110">
+            <ellipse cx="80" cy="96" rx="62" ry="10" fill="#c99e6a" opacity="0.5"/>
+            <path d="M14 34 h132 q-6 62 -66 62 q-60 0 -66 -62 z" fill="#a9d3e8" stroke="#6d96a8" stroke-width="5"/>
+            <ellipse id="teig" cx="80" cy="36" rx="60" ry="13" fill="#f2d8a0" stroke="#d3b06e" stroke-width="3"/>
+            <g id="loeffel">
+              <rect x="76" y="-18" width="9" height="56" rx="4.5" fill="#b98d4f" transform="rotate(18 80 30)"/>
+              <ellipse cx="93" cy="42" rx="12" ry="8" fill="#b98d4f" transform="rotate(18 80 30)"/>
+            </g>
+          </svg>
+        </button>
+        <button class="ofen-knopf" id="backofen" aria-label="Backofen – zum Backen tippen">
+          <svg viewBox="0 0 140 150">
+            <rect x="10" y="-8" width="22" height="20" fill="#8d8d95"/>
+            <rect x="0" y="8" width="140" height="138" rx="12" fill="#a6a6ae" stroke="#7c7c85" stroke-width="4"/>
+            <rect id="ofen-fenster" x="18" y="34" width="104" height="72" rx="10" fill="#3f3f47"/>
+            <g id="ofen-kuchen" opacity="0">
+              <use href="#sym-kuchen" transform="translate(30,44) scale(1.0)"/>
+            </g>
+            <path id="ofen-feuer" d="M32 96 q13 -26 26 0 q13 -26 26 0 q11 -22 24 0" fill="#f2a05e" opacity="0.6"/>
+            <rect x="18" y="118" width="104" height="14" rx="7" fill="#8d8d95"/>
+          </svg>
+        </button>
+      </div>
+      <div class="zutaten-regal" id="zutaten-regal"></div>
+      <svg viewBox="0 0 120 130" class="backen-wolf schwingt"><use href="#sym-wolf"/></svg>
+    </div>
+  </section>
+
+  <!-- Spiel 4a: Leckerlis fangen -->
+  <section class="screen" id="screen-fangen">
+    <header class="spielkopf">
+      <button class="taste rund zurueck" data-ziel="start" aria-label="Zurück">⬅️</button>
+      <div class="fortschritt" id="fangen-fortschritt" aria-label="Gefangene Leckerlis"></div>
+      <button class="taste rund" data-hilfe="fangen" aria-label="Anleitung vorlesen">❓</button>
+    </header>
+    <p class="anweisung">Fange Süßes und Obst – aber lass das Gemüse fallen!</p>
+    <div id="fangen-feld" class="fangen-feld">
+      <div class="wiese"></div>
+      <svg viewBox="0 0 120 130" class="fangen-wolf"><use href="#sym-wolf"/></svg>
+    </div>
+  </section>
+
+  <!-- Spiel 4b: Picknick -->
+  <section class="screen" id="screen-picknick">
+    <header class="spielkopf">
+      <button class="taste rund zurueck" data-ziel="start" aria-label="Zurück">⬅️</button>
+      <div class="fortschritt" id="picknick-fortschritt" aria-label="Verteilte Leckereien"></div>
+      <button class="taste rund" data-hilfe="picknick" aria-label="Anleitung vorlesen">❓</button>
+    </header>
+    <p class="anweisung">Tippe ein Leckerli an – und dann, wer es essen darf!</p>
+    <div class="picknick-bereich">
+      <div class="picknick-decke"></div>
+      <div class="esser-reihe" id="esser-reihe"></div>
+    </div>
+    <div class="korb-rahmen">
+      <div class="korb" id="korb"></div>
+    </div>
+  </section>
+
+  <!-- Sticker-Album -->
+  <section class="screen" id="screen-album">
+    <header class="spielkopf">
+      <button class="taste rund zurueck" data-ziel="start" aria-label="Zurück">⬅️</button>
+      <p class="album-titel">🏅 Sticker-Album <span id="album-zaehler"></span></p>
+      <span class="platzhalter-rund"></span>
+    </header>
+    <p class="anweisung">Für jedes geschaffte Spiel gibt es einen Sticker!</p>
+    <div class="album-gitter" id="album-gitter"></div>
+  </section>
+
+  <!-- Jubel-Overlay -->
+  <div id="jubel" class="jubel" hidden>
+    <div class="jubel-karte">
+      <div class="jubel-buehne">
+        <svg viewBox="0 0 120 130" class="figur wolf schwingt"><use href="#sym-wolf"/></svg>
+        <svg viewBox="0 0 110 120" class="figur mama"><use href="#sym-mama"/></svg>
+        <svg viewBox="0 0 100 100" class="figur geiss huepft h1"><use href="#sym-geisslein"/></svg>
+        <svg viewBox="0 0 100 100" class="figur geiss huepft h2"><use href="#sym-geisslein"/></svg>
+      </div>
+      <p id="jubel-text">Hurra! Du hast alle gefunden!</p>
+      <div class="jubel-sticker" id="jubel-sticker" hidden>
+        <svg viewBox="0 0 60 60" id="jubel-sticker-bild"><use href="#sym-herz"/></svg>
+        <span id="jubel-sticker-text">Neuer Sticker!</span>
+      </div>
+      <div class="jubel-tasten">
+        <button class="taste gross" id="btn-nochmal">🔁 Nochmal</button>
+        <button class="taste gross" id="btn-heim">🏠 Zum Anfang</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script src="js/spiel.js"></script>
+</body>
+</html>
