@@ -29,6 +29,10 @@ const path = require("path");
   await page.click("#btn-ton");
   pruefe("Ton-Taste zeigt aus-Zustand", await page.$eval("#btn-ton", (el) => el.textContent === "🔇" && el.classList.contains("aus")));
   await page.click("#btn-vorlesen");
+  // Die Stufenwahl (Klein/Groß) ist hinter dem Eltern-Zahnrad versteckt
+  pruefe("Stufenwahl anfangs versteckt", await page.$eval(".schwierigkeit", (el) => el.hidden));
+  await page.click("#btn-eltern");
+  pruefe("Zahnrad zeigt Stufenwahl", await page.$eval(".schwierigkeit", (el) => !el.hidden));
   await page.click("#btn-gross");
   await page.reload();
   pruefe("Ton bleibt nach Neuladen aus", await page.$eval("#btn-ton", (el) => el.textContent === "🔇"));
@@ -60,6 +64,7 @@ const path = require("path");
   await page.click("#screen-verstecken .zurueck");
 
   // --- Verstecken im Klein-Modus: 4 Fehlversuche => Geißlein verstecken sich neu, Fortschritt bleibt ---
+  await page.click("#btn-eltern"); // nach dem Neuladen ist die Stufenwahl wieder versteckt
   await page.click("#btn-klein");
   await page.click('[data-spiel="verstecken"]');
   await page.waitForTimeout(300);

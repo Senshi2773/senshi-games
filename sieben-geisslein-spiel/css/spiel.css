@@ -122,6 +122,8 @@ html, body {
   margin-top: 10px;
   z-index: 1;
 }
+/* Die Stufenwahl ist für Eltern gedacht und erscheint erst über das Zahnrad */
+.schwierigkeit[hidden] { display: none; }
 .taste.stufe {
   padding: 10px 18px;
   font-size: 1rem;
@@ -238,6 +240,23 @@ html, body {
   border-radius: 18px;
 }
 .zimmer-szene[hidden] { display: none; }
+
+/* Hochkant am Handy wäre das Zimmer winzig und die Verstecke schwer zu treffen.
+   Darum wird es größer gezeigt – zum Suchen wischt man seitlich durchs Zimmer. */
+@media (max-width: 620px) and (orientation: portrait) {
+  .zimmer-rahmen {
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .zimmer-szene {
+    flex: none;
+    width: auto;
+    height: 100%;
+    max-height: 104vw; /* Zimmerbreite bleibt bei höchstens ca. 1,6 Bildschirmbreiten */
+    aspect-ratio: 800 / 520;
+  }
+}
 
 .zwischenmeldung {
   position: fixed;

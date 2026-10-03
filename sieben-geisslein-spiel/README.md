@@ -45,7 +45,7 @@ schöner als jede Computer-Stimme:
 
 1. Kurze MP3s aufnehmen (Handy-Sprachmemo reicht) und in einen neuen Ordner
    `stimmen/` legen. Dateinamen = Ansage-Schlüssel, z. B.:
-   `verstecken.mp3`, `memory.mp3`, `backen.mp3`, `fangen.mp3`, `picknick.mp3`
+   `start.mp3` (Begrüßung/Hilfe am Startbildschirm), `verstecken.mp3`, `memory.mp3`, `backen.mp3`, `fangen.mp3`, `picknick.mp3`
    (die Spielanleitungen), `ruehren.mp3`, `ofen.mp3`, `raum-kueche.mp3`,
    `raum-garten.mp3`, `raum-neu.mp3`, `neu-verstecken.mp3`, `picknick-los.mp3`.
    Die passenden Texte stehen in `js/spiel.js` (Objekt `hilfen` und die

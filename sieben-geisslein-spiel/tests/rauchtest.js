@@ -33,6 +33,14 @@ const path = require("path");
     const belegt = await page.$$(".zimmer-szene:not([hidden]) .versteck.belegt");
     pruefe(`Raum ${raum + 1}: mindestens 11 Verstecke`, alle.length >= 11);
     pruefe(`Raum ${raum + 1}: genau 7 belegt`, belegt.length === 7);
+    // Kindgerechte Tippflächen: jedes Versteck ist mindestens ~48 px groß
+    const kleinste = await page.$$eval(".zimmer-szene:not([hidden]) .versteck", (vs) =>
+      Math.min(...vs.map((v) => {
+        const r = v.getBoundingClientRect();
+        return Math.min(r.width, r.height);
+      }))
+    );
+    pruefe(`Raum ${raum + 1}: kleinste Tippfläche >= 48 px (ist ${Math.round(kleinste)})`, kleinste >= 48);
     for (const s of belegt) await s.dispatchEvent("click");
     // Zwischenmeldung (2,75 s) bzw. Jubel abwarten
     await page.waitForTimeout(raum < 2 ? 4200 : 1400);

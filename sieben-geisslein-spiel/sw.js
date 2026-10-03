@@ -1,5 +1,5 @@
 /* Service Worker: macht das Spiel offline spielbar */
-var CACHE = "geisslein-v4";
+var CACHE = "geisslein-v5";
 var DATEIEN = [
   ".",
   "index.html",

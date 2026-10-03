@@ -277,9 +277,11 @@
     window.speechSynthesis.speak(sprich);
   }
 
-  // schluessel: Dateiname einer eigenen Aufnahme (ohne .mp3), falls vorhanden
-  function vorlesen(text, schluessel) {
-    if (!einstellungen.vorlesen) return;
+  // schluessel: Dateiname einer eigenen Aufnahme (ohne .mp3), falls vorhanden.
+  // erzwungen: auch sprechen, wenn Vorlesen ausgeschaltet ist (Hilfeknopf –
+  // Nicht-Leser brauchen die Anleitung immer).
+  function vorlesen(text, schluessel, erzwungen) {
+    if (!einstellungen.vorlesen && !erzwungen) return;
     if (EIGENE_STIMMEN && schluessel) {
       var aufnahme = new Audio("stimmen/" + schluessel + ".mp3");
       aufnahme.play().catch(function () { sprachausgabe(text); });
@@ -289,7 +291,8 @@
   }
 
   var hilfen = {
-    verstecken: "Die Geißlein haben sich versteckt – aber Achtung: Nicht in jedem Versteck steckt eins! Tippe auf die Möbel und such gut. Wenn ein Versteck wackelt, kichert da vielleicht jemand.",
+    start: "Hallo! Schön, dass du da bist! Such dir ein Spiel aus: Verstecken suchen, Paare finden, Kuchen backen oder das Picknick-Spiel. Tippe einfach auf einen Knopf – und tippe auch mal auf die Tiere!",
+    verstecken: "Die Geißlein haben sich versteckt – aber Achtung: Nicht in jedem Versteck steckt eins! Tippe auf die Möbel und such gut. Schiebe das Zimmer mit dem Finger zur Seite, damit du alles siehst. Wenn ein Versteck wackelt, kichert da vielleicht jemand.",
     memory: "Tippe auf zwei Karten. Wenn die Bilder gleich sind, hast du ein Paar gefunden!",
     backen: "Der liebe Wolf backt einen Kuchen und du hilfst! Tippe die Zutaten in der richtigen Reihenfolge an – das Rezept oben zeigt dir, was als Nächstes drankommt.",
     fangen: "Fange Kekse, Bonbons, Äpfel und Erdbeeren für das Picknick! Aber Vorsicht: Brokkoli, Zwiebeln und Karotten wollen wir nicht im Korb. Lass sie einfach vorbeifallen!",
@@ -513,6 +516,30 @@
     });
   }
 
+  // Unsichtbare Tippflächen: kleine Verstecke (Bild, Teppich …) wären für
+  // Kinderfinger sonst schwer zu treffen. Jedes Versteck bekommt eine
+  // durchsichtige Fläche von mindestens 110 SVG-Einheiten (Raumbreite: 800).
+  var MIN_TIPPFLAECHE = 110;
+  function tippflaechenAnlegen(szene) {
+    if (szene.getAttribute("data-tippflaechen") === "ja") return;
+    szene.setAttribute("data-tippflaechen", "ja");
+    szenenVerstecke(szene).forEach(function (versteck) {
+      var kasten = versteck.getBBox(); // geht erst, wenn die Szene sichtbar ist
+      var polster = 10;
+      var breite = Math.max(kasten.width + 2 * polster, MIN_TIPPFLAECHE);
+      var hoehe = Math.max(kasten.height + 2 * polster, MIN_TIPPFLAECHE);
+      var flaeche = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      flaeche.setAttribute("class", "tippflaeche");
+      flaeche.setAttribute("x", kasten.x + kasten.width / 2 - breite / 2);
+      flaeche.setAttribute("y", kasten.y + kasten.height / 2 - hoehe / 2);
+      flaeche.setAttribute("width", breite);
+      flaeche.setAttribute("height", hoehe);
+      flaeche.setAttribute("fill", "#fff");
+      flaeche.setAttribute("fill-opacity", "0");
+      versteck.insertBefore(flaeche, versteck.firstChild);
+    });
+  }
+
   function raumZeigen() {
     gefunden = 0;
     fehlversuche = 0;
@@ -523,6 +550,7 @@
       if (i === raumIndex) szene.removeAttribute("hidden");
       else szene.setAttribute("hidden", "");
     });
+    tippflaechenAnlegen(aktiveSzene());
     versteckeAuslosen(aktiveSzene());
     var raum = aktiveSzene().getAttribute("data-raum");
     versteckAnweisung.textContent =
@@ -1125,11 +1153,34 @@
     taste.addEventListener("click", function () {
       klang.tipp();
       var schluessel = taste.getAttribute("data-hilfe");
-      vorlesen(hilfen[schluessel], schluessel);
+      // erzwungen: Der Hilfeknopf spricht auch bei ausgeschaltetem Vorlesen
+      vorlesen(hilfen[schluessel], schluessel, true);
     });
   });
 
-  // Schwierigkeit: 🐣 Klein (ohne Limit) / 🦊 Groß (4 Versuche pro Raum)
+  // Beim allerersten Tippen auf den Startbildschirm begrüßt das Spiel das Kind.
+  // (Beim Laden selbst darf der Browser noch keinen Ton abspielen.)
+  var begruesst = false;
+  document.getElementById("screen-start").addEventListener("pointerdown", function (ereignis) {
+    if (begruesst) return;
+    if (ereignis.target.closest && ereignis.target.closest(".taste")) return;
+    begruesst = true;
+    vorlesen(hilfen.start, "start");
+  });
+
+  // Schwierigkeit: 🐣 Klein (ohne Limit) / 🦊 Groß (4 Versuche pro Raum).
+  // Die Wahl ist für Eltern gedacht und versteckt sich hinter dem Zahnrad,
+  // damit Kinder sie nicht aus Versehen umstellen.
+  var elternTaste = document.getElementById("btn-eltern");
+  var schwierigkeitReihe = document.querySelector(".schwierigkeit");
+  elternTaste.addEventListener("click", function () {
+    klang.tipp();
+    schwierigkeitReihe.hidden = !schwierigkeitReihe.hidden;
+    if (!schwierigkeitReihe.hidden) {
+      vorlesen("Hier stellen Mama oder Papa ein, wie schwer das Versteckspiel ist.");
+    }
+  });
+
   var kleinTaste = document.getElementById("btn-klein");
   var grossTaste = document.getElementById("btn-gross");
   function schwierigkeitAnzeigen() {
